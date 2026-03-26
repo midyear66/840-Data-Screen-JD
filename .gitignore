@@ -1,3 +1,4 @@
+.vscode/*-settings.json
 bin/*.prg
 bin/*.prg.debug.xml
 bin/gen/
