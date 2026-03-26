@@ -1,27 +1,57 @@
 # MyDataField
 
-A custom Garmin Connect IQ data field for the Edge 840 (and compatible devices) that displays four key cycling metrics in a clean, high-visibility layout.
+A custom Garmin Connect IQ data field for the Edge 840 (and compatible devices) that displays four key cycling metrics in a clean, high-visibility layout — with a two-stage alert system tuned for hot-weather Z2 riding.
 
 ## Layout
 
 ```
 ┌─────────────┬─────────────┐
-│   POWER     │   AVG PWR   │
+│   POWER  W  │   NP     NP │
 ├─────────────┴─────────────┤
-│         HEART RATE    BPM │
+│          HEART RATE   BPM │
 ├───────────────────────────┤
-│           CADENCE     RPM │
+│            CADENCE    RPM │
 ├───────────────────────────┤
-│          DISTANCE      MI │
+│           DISTANCE     MI │
 └───────────────────────────┘
 ```
 
-- **Row 1:** Current power and average power (split 50/50)
+- **Row 1:** Instant power (left) and Normalized Power — Coggan 30s rolling NP (right)
 - **Row 2:** Heart rate with BPM unit
 - **Row 3:** Cadence with RPM unit
 - **Row 4:** Distance in miles
 
-### Features
+Rows are separated by red dividers.
+
+---
+
+## Alert System
+
+Each of the power and HR tiles uses a **two-stage alert**:
+
+| Stage | Display | Meaning |
+|-------|---------|---------|
+| Normal | Black text on white | Within zone |
+| Warning | Solid inverse (white text, black bg) | Approaching limit — pay attention |
+| Alert | Slow flash (~0.5 Hz) | Over limit — back off now |
+
+### Thresholds (tuned for FTP 171w, Max HR 174 bpm, LTHR ~147 bpm)
+
+| Metric | Warning | Alert |
+|--------|---------|-------|
+| Instant power | 120w (approaching Z2 ceiling) | 135w (into Z3) |
+| Normalized power | 128w | 145w |
+| Heart rate | 138 bpm (top of Z3) | 147 bpm (LTHR) |
+
+### Combined Condition
+When **both** instant power and HR are at warning or above simultaneously, both tiles escalate to flashing — even if neither has crossed its individual alert threshold. This catches the "quietly overcooked" scenario that single-metric alerts miss.
+
+### Low-Power / Bonk Alert
+If instant power stays below 88w (Z2 floor) for 60+ consecutive seconds **and** HR is also dropping below 122 bpm, the cadence tile flashes as a fatigue/bonk check.
+
+---
+
+## Other Features
 
 - Fonts scale to fill each row for maximum readability
 - Displays `--` until a sensor connects
