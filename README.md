@@ -1,4 +1,4 @@
-# MyDataField
+# MyJDScreen
 
 A custom Garmin Connect IQ data field for the Edge 840 (and compatible devices) that displays four key cycling metrics in a clean, high-visibility layout — with a two-stage alert system tuned for hot-weather Z2 riding.
 
@@ -35,7 +35,7 @@ Each of the power and HR tiles uses a **two-stage alert**:
 | Warning | Solid inverse (white text, black bg) | Approaching limit — pay attention |
 | Alert | Slow flash (~0.5 Hz) | Over limit — back off now |
 
-### Thresholds (tuned for FTP 171w, Max HR 174 bpm, LTHR ~147 bpm)
+### Thresholds (defaults tuned for FTP 171w, Max HR 174 bpm, LTHR ~147 bpm)
 
 | Metric | Warning | Alert |
 |--------|---------|-------|
@@ -43,11 +43,13 @@ Each of the power and HR tiles uses a **two-stage alert**:
 | Normalized power | 128w | 145w |
 | Heart rate | 138 bpm (top of Z3) | 147 bpm (LTHR) |
 
+All thresholds are user-configurable — see [Configuring Thresholds](#configuring-thresholds) below.
+
 ### Combined Condition
 When **both** instant power and HR are at warning or above simultaneously, both tiles escalate to flashing — even if neither has crossed its individual alert threshold. This catches the "quietly overcooked" scenario that single-metric alerts miss.
 
 ### Low-Power / Bonk Alert
-If instant power stays below 88w (Z2 floor) for 60+ consecutive seconds **and** HR is also dropping below 122 bpm, the cadence tile flashes as a fatigue/bonk check.
+If instant power stays below 88w (Z2 floor) for 60+ consecutive seconds **and** HR is also dropping below 122 bpm, the cadence tile flashes as a fatigue/bonk check. The duration threshold is also configurable.
 
 ---
 
@@ -57,6 +59,29 @@ If instant power stays below 88w (Z2 floor) for 60+ consecutive seconds **and** 
 - Displays `--` until a sensor connects
 - Returns to `--` after 5 consecutive missed sensor readings
 - Red battery warning (`X%`) appears in the cadence tile when battery drops below 10%
+
+---
+
+## Configuring Thresholds
+
+All eight alert thresholds are configurable without recompiling. Defaults match the author's physiology — tune them to your own FTP, max HR, and LTHR.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| HR Warning (bpm) | 138 | Solid inverse — entering threshold territory |
+| HR Alert (bpm) | 147 | Flashing — at LTHR, back off |
+| Power Warning (w) | 120 | Solid inverse — approaching Z2 ceiling |
+| Power Alert (w) | 135 | Flashing — into Z3 |
+| Power Low / Bonk (w) | 88 | Below Z2 floor, starts bonk timer |
+| NP Warning (w) | 128 | Solid inverse — sustained effort getting costly |
+| NP Alert (w) | 145 | Flashing — trail variability adding up |
+| Bonk Delay (sec) | 60 | Seconds below bonk threshold before cadence tile flashes |
+
+### How to change settings
+
+**In the simulator:** Settings menu → open the settings dialog for the data field.
+
+**On the device (sideloaded via USB):** Settings are stored in `resources/properties.xml`. Edit the default values and rebuild/reinstall.
 
 ---
 
@@ -73,13 +98,13 @@ If instant power stays below 88w (Z2 floor) for 60+ consecutive seconds **and** 
 
 1. Open the project folder in VS Code
 2. Run **Monkey C: Build for Device** from the command palette
-3. The compiled `.prg` file will be output to `bin/MyDataField.prg`
+3. The compiled `.prg` file will be output to `bin/830DataScreenJD.prg`
 
 Or from the terminal:
 
 ```bash
 java -Xms1g -jar /path/to/connectiq-sdk/bin/monkeybrains.jar \
-  -o bin/MyDataField.prg \
+  -o bin/830DataScreenJD.prg \
   -f monkey.jungle \
   -y /path/to/developer_key \
   -d edge840_sim -w
@@ -96,7 +121,7 @@ Use **[OpenMTP](https://github.com/ganeshrvel/openmtp)** to transfer files to yo
 3. Connect your Garmin Edge 840 to your Mac via USB
 4. Open OpenMTP — your device should appear in the file browser
 5. Navigate to `GARMIN/Apps/` on the device
-6. Drag `bin/MyDataField.prg` into the `Apps/` folder
+6. Drag `bin/830DataScreenJD.prg` into the `Apps/` folder
 7. Safely eject the device and disconnect
 8. On your Edge 840, add the data field to a training screen via **Settings → Activity Profiles → [Profile] → Data Screens**
 

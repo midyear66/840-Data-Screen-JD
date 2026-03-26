@@ -1,3 +1,4 @@
+import Toybox.Application;
 import Toybox.Activity;
 import Toybox.Graphics;
 import Toybox.Lang;
@@ -45,27 +46,17 @@ class MyDataFieldView extends WatchUi.DataField {
     // Miss tolerance before field shows "--"
     const MISS_THRESHOLD = 5;
 
-    // ── HR thresholds (bpm) ───────────────────────────────────────────────────
-    // Max HR 174 bpm. Z3 aerobic ceiling = 137 bpm. LTHR ~147 bpm.
-    // Heat ceiling is top of Z3 — beyond that cardiac drift in 95°F+ is unsafe.
-    const HR_WARN   = 138;   // solid inverse  — top of Z3, entering threshold
-    const HR_ALERT  = 147;   // slow flash     — at LTHR, hard stop in heat
-
-    // ── Instant power thresholds (watts) ─────────────────────────────────────
-    // Z2 = 96–128w. Warn before ceiling, alert above ceiling.
-    const PWR_WARN   = 120;  // solid inverse  — approaching Z2 ceiling
-    const PWR_ALERT  = 135;  // slow flash     — into Z3, burning matches
-    const PWR_LOW    = 88;   // low alert      — below Z2 floor (bonk watch)
-
-    // ── Normalized power thresholds (watts) ──────────────────────────────────
-    // NP runs 15–25% higher than avg on trail — needs its own higher thresholds
-    const NP_WARN    = 128;  // solid inverse  — sustained effort getting costly
-    const NP_ALERT   = 145;  // slow flash     — trail variability adding up
-
-    // ── Low power bonk detection ──────────────────────────────────────────────
-    // If power stays below PWR_LOW for this many compute cycles (~60 sec),
-    // trigger cadence tile flash as fatigue/bonk check
-    const LOW_PWR_CYCLES = 60;
+    // ── Alert thresholds — loaded from user settings (Garmin Connect) ─────────
+    // Defaults match Bob's physiology: FTP 171w, Max HR 174 bpm, LTHR ~147 bpm.
+    // Edit via Garmin Connect app → Data Fields → MyDataField → Settings.
+    var _hrWarn       as Lang.Number = 138;   // solid inverse  — top of Z3
+    var _hrAlert      as Lang.Number = 147;   // slow flash     — at LTHR
+    var _pwrWarn      as Lang.Number = 120;   // solid inverse  — approaching Z2 ceiling
+    var _pwrAlert     as Lang.Number = 135;   // slow flash     — into Z3
+    var _pwrLow       as Lang.Number = 88;    // low alert      — below Z2 floor
+    var _npWarn       as Lang.Number = 128;   // solid inverse  — sustained effort costly
+    var _npAlert      as Lang.Number = 145;   // slow flash     — trail variability adding up
+    var _lowPwrCycles as Lang.Number = 60;    // seconds below _pwrLow before bonk check
     var _lowPwrCount = 0;
 
     // ── Flash clock ───────────────────────────────────────────────────────────
@@ -77,6 +68,25 @@ class MyDataFieldView extends WatchUi.DataField {
         DataField.initialize();
         _npBuf = new [30];
         for (var i = 0; i < 30; i++) { _npBuf[i] = 0; }
+        loadSettings();
+    }
+
+    // ── loadSettings() — read user-configured thresholds from storage ─────────
+    function loadSettings() as Void {
+        _hrWarn       = Application.Properties.getValue("hrWarn")       as Lang.Number;
+        _hrAlert      = Application.Properties.getValue("hrAlert")      as Lang.Number;
+        _pwrWarn      = Application.Properties.getValue("pwrWarn")      as Lang.Number;
+        _pwrAlert     = Application.Properties.getValue("pwrAlert")     as Lang.Number;
+        _pwrLow       = Application.Properties.getValue("pwrLow")       as Lang.Number;
+        _npWarn       = Application.Properties.getValue("npWarn")       as Lang.Number;
+        _npAlert      = Application.Properties.getValue("npAlert")      as Lang.Number;
+        _lowPwrCycles = Application.Properties.getValue("lowPwrCycles") as Lang.Number;
+    }
+
+    // ── onSettingsChanged() — called when user edits settings in Garmin Connect
+    function onSettingsChanged() as Void {
+        loadSettings();
+        WatchUi.requestUpdate();
     }
 
     // ── compute() — called ~1/sec by the device ───────────────────────────────
@@ -135,7 +145,7 @@ class MyDataFieldView extends WatchUi.DataField {
 
         // ── Low power bonk counter ────────────────────────────────────────────
         // Count consecutive seconds below PWR_LOW
-        if (_power != null && _power < PWR_LOW) {
+        if (_power != null && _power < _pwrLow) {
             _lowPwrCount += 1;
         } else {
             _lowPwrCount = 0;  // reset as soon as power rises
@@ -158,13 +168,13 @@ class MyDataFieldView extends WatchUi.DataField {
         // ── Evaluate alert states ─────────────────────────────────────────────
 
         // Instant power state
-        var pwrState = alertState(_power, PWR_WARN, PWR_ALERT);
+        var pwrState = alertState(_power, _pwrWarn, _pwrAlert);
 
         // Normalized power state
-        var npState  = alertState(_normPower, NP_WARN, NP_ALERT);
+        var npState  = alertState(_normPower, _npWarn, _npAlert);
 
         // HR state
-        var hrState  = alertState(_hr, HR_WARN, HR_ALERT);
+        var hrState  = alertState(_hr, _hrWarn, _hrAlert);
 
         // ── Combined condition ────────────────────────────────────────────────
         // If BOTH power and HR are at warning or above, escalate both to flash.
@@ -181,7 +191,7 @@ class MyDataFieldView extends WatchUi.DataField {
         // Flash cadence tile if power has been below Z2 floor for 60+ seconds
         // AND HR is also dropping (hr below Z3 floor = 128 bpm)
         var bonkAlert = false;
-        if (_lowPwrCount >= LOW_PWR_CYCLES) {
+        if (_lowPwrCount >= _lowPwrCycles) {
             if (_hr != null && _hr < 122) {  // below Z3 floor (70% of 174 max)
                 bonkAlert = _flashToggle;  // flash cadence tile
             }

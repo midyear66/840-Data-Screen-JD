@@ -1,0 +1,10 @@
+<properties>
+    <property id="hrWarn"        type="number">138</property>
+    <property id="hrAlert"       type="number">147</property>
+    <property id="pwrWarn"       type="number">120</property>
+    <property id="pwrAlert"      type="number">135</property>
+    <property id="pwrLow"        type="number">88</property>
+    <property id="npWarn"        type="number">128</property>
+    <property id="npAlert"       type="number">145</property>
+    <property id="lowPwrCycles"  type="number">60</property>
+</properties>
