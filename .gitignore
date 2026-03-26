@@ -1,0 +1,7 @@
+bin/*.prg
+bin/*.prg.debug.xml
+bin/gen/
+bin/mir/
+bin/internal-mir/
+bin/test_*.prg
+bin/test_*.prg.debug.xml
