@@ -12,75 +12,102 @@ import Toybox.WatchUi;
 //
 //  ALERT SYSTEM — two-stage per tile:
 //    WARNING  → solid inverse (black bg, white text) — "pay attention"
-//    ALERT    → slow flash (~1 Hz) — "back off now"
+//    ALERT    → slow flash (~0.5 Hz) — "back off now"
 //
 //  COMBINED CONDITION — when power AND hr are both in warning or above,
 //    both tiles flash in sync regardless of individual thresholds.
-//    This catches "quietly overcooked" before either metric hits alert alone.
 //
-//  LOW POWER — if instant power stays below PWR_LOW for 60+ seconds
-//    AND hr is also dropping, cadence tile flashes as bonk/fatigue check.
+//  W' BALANCE (Skiba 2012) — anaerobic capacity remaining.
+//    Drain: W'bal -= (power - CP) when power > CP
+//    Recovery: W'bal += (W' - W'bal) / 550 when power <= CP  (τ = 550s)
+//    Warning < 40%, Alert (flash) < 20%
+//
+//  EF DRIFT — Efficiency Factor = power / HR.
+//    Baseline: Welford mean of first 600 valid samples (~10 min warmup).
+//    Current: rolling mean of last 120 valid samples (circular buffer).
+//    Drift = round((current - baseline) / baseline * 100) — signed %.
+//    Warning <= -5%, Alert (flash) <= -10%
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MyDataFieldView extends WatchUi.DataField {
 
-    var _hr         as Lang.Number?  = null;
-    var _cadence    as Lang.Number?  = null;
-    var _power      as Lang.Number?  = null;
-    var _normPower  as Lang.Number?  = null;
-    var _distance   as Lang.Float?   = null;
+    var _hr        as Lang.Number? = null;
+    var _power     as Lang.Number? = null;
+    var _normPower as Lang.Number? = null;
+    var _distance  as Lang.Float?  = null;
 
-    var _hrMiss      = 0;
-    var _cadenceMiss = 0;
-    var _powerMiss   = 0;
+    var _hrMiss    = 0;
+    var _powerMiss = 0;
 
     // ── NP calculation state ──────────────────────────────────────────────────
     // Coggan NP: 4th root of rolling mean of (30s rolling avg power)^4
     var _npBuf     as Lang.Array<Lang.Number or Null>;  // 30-sample circular buffer
-    var _npBufSum  as Lang.Number  = 0;         // running sum of buffer contents
-    var _npIdx     as Lang.Number  = 0;         // next write position (0–29)
-    var _npCount   as Lang.Number  = 0;         // samples written so far (caps at 30)
-    var _npMean4   as Lang.Float   = 0.0;       // Welford running mean of rollingAvg^4
-    var _npSamples as Lang.Number  = 0;         // denominator for Welford mean
+    var _npBufSum  as Lang.Number = 0;
+    var _npIdx     as Lang.Number = 0;
+    var _npCount   as Lang.Number = 0;
+    var _npMean4   as Lang.Float  = 0.0;
+    var _npSamples as Lang.Number = 0;
 
     // Miss tolerance before field shows "--"
     const MISS_THRESHOLD = 5;
 
     // ── Alert thresholds — loaded from user settings (Garmin Connect) ─────────
     // Defaults match Bob's physiology: FTP 171w, Max HR 174 bpm, LTHR ~147 bpm.
-    // Edit via Garmin Connect app → Data Fields → MyDataField → Settings.
-    var _hrWarn       as Lang.Number = 138;   // solid inverse  — top of Z3
-    var _hrAlert      as Lang.Number = 147;   // slow flash     — at LTHR
-    var _pwrWarn      as Lang.Number = 120;   // solid inverse  — approaching Z2 ceiling
-    var _pwrAlert     as Lang.Number = 135;   // slow flash     — into Z3
-    var _pwrLow       as Lang.Number = 88;    // low alert      — below Z2 floor
-    var _npWarn       as Lang.Number = 128;   // solid inverse  — sustained effort costly
-    var _npAlert      as Lang.Number = 145;   // slow flash     — trail variability adding up
-    var _lowPwrCycles as Lang.Number = 60;    // seconds below _pwrLow before bonk check
-    var _lowPwrCount = 0;
+    var _hrWarn   as Lang.Number = 138;
+    var _hrAlert  as Lang.Number = 147;
+    var _pwrWarn  as Lang.Number = 120;
+    var _pwrAlert as Lang.Number = 135;
+    var _npWarn   as Lang.Number = 128;
+    var _npAlert  as Lang.Number = 145;
 
     // ── Flash clock ───────────────────────────────────────────────────────────
-    // onUpdate fires every ~1s on Edge 840 datafields — toggle each call
-    // gives ~0.5 Hz flash (1 sec on, 1 sec off) which is readable on trail
+    // onUpdate fires every ~1s — toggle each call gives ~0.5 Hz flash
     var _flashToggle as Lang.Boolean = false;
+
+    // ── W' Balance (Skiba 2012) ───────────────────────────────────────────────
+    var _wPrime        as Lang.Number  = 20000;
+    var _cp            as Lang.Number  = 171;
+    var _wPrimeBal     as Lang.Float   = 20000.0;
+    var _wPrimeSeconds as Lang.Number  = 0;
+    var _wPrimeValid   as Lang.Boolean = false;
+
+    // ── Efficiency Factor drift ───────────────────────────────────────────────
+    var _efBaselineCount as Lang.Number  = 0;
+    var _efBaseline      as Lang.Float   = 0.0;
+    var _efBuf           as Lang.Array<Lang.Float or Null>;  // 120-sample circular buffer
+    var _efBufSum        as Lang.Float   = 0.0;
+    var _efBufIdx        as Lang.Number  = 0;
+    var _efBufCount      as Lang.Number  = 0;
+    var _efCurrent       as Lang.Float   = 0.0;
+    var _efValid         as Lang.Boolean = false;
 
     function initialize() {
         DataField.initialize();
+
         _npBuf = new [30];
         for (var i = 0; i < 30; i++) { _npBuf[i] = 0; }
+
+        _efBuf = new [120];
+        for (var i = 0; i < 120; i++) { _efBuf[i] = 0.0; }
+
         loadSettings();
+        _wPrimeBal = _wPrime.toFloat();  // sync after loadSettings() may change _wPrime
     }
 
     // ── loadSettings() — read user-configured thresholds from storage ─────────
     function loadSettings() as Void {
-        _hrWarn       = Application.Properties.getValue("hrWarn")       as Lang.Number;
-        _hrAlert      = Application.Properties.getValue("hrAlert")      as Lang.Number;
-        _pwrWarn      = Application.Properties.getValue("pwrWarn")      as Lang.Number;
-        _pwrAlert     = Application.Properties.getValue("pwrAlert")     as Lang.Number;
-        _pwrLow       = Application.Properties.getValue("pwrLow")       as Lang.Number;
-        _npWarn       = Application.Properties.getValue("npWarn")       as Lang.Number;
-        _npAlert      = Application.Properties.getValue("npAlert")      as Lang.Number;
-        _lowPwrCycles = Application.Properties.getValue("lowPwrCycles") as Lang.Number;
+        _hrWarn   = Application.Properties.getValue("hrWarn")   as Lang.Number;
+        _hrAlert  = Application.Properties.getValue("hrAlert")  as Lang.Number;
+        _pwrWarn  = Application.Properties.getValue("pwrWarn")  as Lang.Number;
+        _pwrAlert = Application.Properties.getValue("pwrAlert") as Lang.Number;
+        _npWarn   = Application.Properties.getValue("npWarn")   as Lang.Number;
+        _npAlert  = Application.Properties.getValue("npAlert")  as Lang.Number;
+        _wPrime   = Application.Properties.getValue("wPrime")   as Lang.Number;
+        _cp       = Application.Properties.getValue("cp")       as Lang.Number;
+        // Clamp W'bal if user lowers W' mid-ride to prevent display > 100%
+        if (_wPrimeBal > _wPrime.toFloat()) {
+            _wPrimeBal = _wPrime.toFloat();
+        }
     }
 
     // ── onSettingsChanged() — called when user edits settings in Garmin Connect
@@ -101,15 +128,6 @@ class MyDataFieldView extends WatchUi.DataField {
             if (_hrMiss >= MISS_THRESHOLD) { _hr = null; }
         }
 
-        // Cadence
-        if (info.currentCadence != null) {
-            _cadence = info.currentCadence;
-            _cadenceMiss = 0;
-        } else {
-            _cadenceMiss += 1;
-            if (_cadenceMiss >= MISS_THRESHOLD) { _cadence = null; }
-        }
-
         // Instant power
         if (info.currentPower != null) {
             _power = info.currentPower;
@@ -120,9 +138,6 @@ class MyDataFieldView extends WatchUi.DataField {
         }
 
         // ── Normalized power (Coggan) ─────────────────────────────────────────
-        // Push current power (0 if no signal) into 30s circular buffer,
-        // then accumulate a Welford running mean of (rollingAvg^4).
-        // NP = 4th root of that mean — valid once buffer is full (30 samples).
         var pSample = (_power != null) ? (_power as Lang.Number) : 0;
         _npBufSum  -= _npBuf[_npIdx];
         _npBuf[_npIdx] = pSample;
@@ -143,12 +158,48 @@ class MyDataFieldView extends WatchUi.DataField {
             _distance = info.elapsedDistance / 1609.344;
         }
 
-        // ── Low power bonk counter ────────────────────────────────────────────
-        // Count consecutive seconds below PWR_LOW
-        if (_power != null && _power < _pwrLow) {
-            _lowPwrCount += 1;
-        } else {
-            _lowPwrCount = 0;  // reset as soon as power rises
+        // ── W' Balance (Skiba 2012) ───────────────────────────────────────────
+        // Only update when power is valid — no phantom recovery during dropouts
+        if (_power != null) {
+            var p      = (_power as Lang.Number).toFloat();
+            var cpF    = _cp.toFloat();
+            var wPrimeF = _wPrime.toFloat();
+
+            if (p > cpF) {
+                _wPrimeBal -= (p - cpF);
+            } else {
+                _wPrimeBal += (wPrimeF - _wPrimeBal) / 550.0;
+            }
+
+            if (_wPrimeBal < 0.0)      { _wPrimeBal = 0.0; }
+            if (_wPrimeBal > wPrimeF)  { _wPrimeBal = wPrimeF; }
+
+            _wPrimeSeconds += 1;
+            if (_wPrimeSeconds >= 60) { _wPrimeValid = true; }
+        }
+
+        // ── Efficiency Factor drift ───────────────────────────────────────────
+        // Only valid when both power and HR are present and HR > 0
+        if (_power != null && _hr != null && (_hr as Lang.Number) > 0) {
+            var ef = (_power as Lang.Number).toFloat() / (_hr as Lang.Number).toFloat();
+
+            // Phase 1: build baseline from first 600 valid samples
+            if (_efBaselineCount < 600) {
+                _efBaselineCount += 1;
+                _efBaseline += (ef - _efBaseline) / _efBaselineCount.toFloat();
+                if (_efBaselineCount == 600) { _efValid = true; }
+            }
+
+            // Always maintain current 120s rolling buffer
+            _efBufSum -= (_efBuf[_efBufIdx] as Lang.Float);
+            _efBuf[_efBufIdx] = ef;
+            _efBufSum += ef;
+            _efBufIdx = (_efBufIdx + 1) % 120;
+            if (_efBufCount < 120) { _efBufCount += 1; }
+
+            if (_efBufCount > 0) {
+                _efCurrent = _efBufSum / _efBufCount.toFloat();
+            }
         }
     }
 
@@ -167,94 +218,107 @@ class MyDataFieldView extends WatchUi.DataField {
 
         // ── Evaluate alert states ─────────────────────────────────────────────
 
-        // Instant power state
-        var pwrState = alertState(_power, _pwrWarn, _pwrAlert);
+        var pwrState = alertState(_power,     _pwrWarn, _pwrAlert);
+        var npState  = alertState(_normPower, _npWarn,  _npAlert);
+        var hrState  = alertState(_hr,        _hrWarn,  _hrAlert);
 
-        // Normalized power state
-        var npState  = alertState(_normPower, _npWarn, _npAlert);
+        var combined    = (pwrState >= 1 && hrState >= 1);
+        var pwrInverse  = resolveInverse(pwrState, combined);
+        var npInverse   = resolveInverse(npState,  false);
+        var hrInverse   = resolveInverse(hrState,  combined);
 
-        // HR state
-        var hrState  = alertState(_hr, _hrWarn, _hrAlert);
+        // ── W' Balance display and alert ──────────────────────────────────────
+        var wBalStr     = "--";
+        var wBalInverse = false;
+        if (_wPrimeValid) {
+            var wBalPct = (_wPrimeBal / _wPrime.toFloat() * 100.0).toNumber();
+            wBalStr = wBalPct.toString();
+            if (wBalPct < 20) {
+                wBalInverse = _flashToggle;
+            } else if (wBalPct < 40) {
+                wBalInverse = true;
+            }
+        }
 
-        // ── Combined condition ────────────────────────────────────────────────
-        // If BOTH power and HR are at warning or above, escalate both to flash.
-        // This catches the "quietly overcooked" scenario single metrics miss.
-        var combined = (pwrState >= 1 && hrState >= 1);
-
-        // Resolve final inverse flags
-        // State: 0 = normal, 1 = warning (solid inverse), 2 = alert (flash)
-        var pwrInverse  = resolveInverse(pwrState,  combined);
-        var npInverse   = resolveInverse(npState,   false);     // NP independent
-        var hrInverse   = resolveInverse(hrState,   combined);
-
-        // ── Low power / bonk alert on cadence tile ────────────────────────────
-        // Flash cadence tile if power has been below Z2 floor for 60+ seconds
-        // AND HR is also dropping (hr below Z3 floor = 128 bpm)
-        var bonkAlert = false;
-        if (_lowPwrCount >= _lowPwrCycles) {
-            if (_hr != null && _hr < 122) {  // below Z3 floor (70% of 174 max)
-                bonkAlert = _flashToggle;  // flash cadence tile
+        // ── EF Drift display and alert ────────────────────────────────────────
+        var efStr     = "--";
+        var efInverse = false;
+        if (_efValid && _efBaseline > 0.0) {
+            var drift = Math.round((_efCurrent - _efBaseline) / _efBaseline * 100.0).toNumber();
+            efStr = (drift >= 0) ? ("+" + drift.toString()) : drift.toString();
+            if (drift <= -10) {
+                efInverse = _flashToggle;
+            } else if (drift <= -5) {
+                efInverse = true;
             }
         }
 
         // ── Draw tiles ────────────────────────────────────────────────────────
 
         // Row 1: Power (left) | Normalized Power (right)
-        drawCell(dc, 0,     0, w / 2, rowH, _power     != null ? _power.toString()          : "--", "W",  false, pad, pwrInverse);
-        drawCell(dc, w / 2, 0, w / 2, rowH, _normPower != null ? _normPower.toString()       : "--", "NP", false, pad, npInverse);
+        drawCell(dc, 0,     0,        w / 2, rowH, _power     != null ? _power.toString()        : "--", "W",   false, pad, pwrInverse);
+        drawCell(dc, w / 2, 0,        w / 2, rowH, _normPower != null ? _normPower.toString()     : "--", "NP",  false, pad, npInverse);
 
         // Row 2: Heart Rate
-        drawCell(dc, 0, rowH,     w, rowH, _hr       != null ? _hr.toString()               : "--", "BPM", true, pad, hrInverse);
+        drawCell(dc, 0,     rowH,     w,     rowH, _hr        != null ? _hr.toString()            : "--", "BPM", true,  pad, hrInverse);
 
-        // Row 3: Cadence — flashes on bonk alert
-        drawCell(dc, 0, rowH * 2, w, rowH, _cadence  != null ? _cadence.toString()          : "--", "RPM", true, pad, bonkAlert);
+        // Row 3: Distance
+        drawCell(dc, 0, rowH * 2, w, rowH, _distance != null ? _distance.format("%.1f") : "--", "MI", true, pad, false);
 
-        // Battery warning on cadence tile when < 10%
-        var battery = System.getSystemStats().battery;
-        if (battery < 10.0) {
-            dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(w - pad, rowH * 2 + pad, Graphics.FONT_SMALL,
-                        battery.format("%.0f") + "%", Graphics.TEXT_JUSTIFY_RIGHT);
+        // Sensor battery overlay — lowest paired sensor < 10%
+        var actInfo = Activity.getActivityInfo();
+        if (actInfo != null && (actInfo has :sensorBatteries) && actInfo.sensorBatteries != null) {
+            var batteries = actInfo.sensorBatteries;
+            var lowestPct = 100.0;
+            var keys = batteries.keys();
+            for (var i = 0; i < keys.size(); i++) {
+                var entry = batteries[keys[i]];
+                if (entry != null) {
+                    var pct = entry.battery;
+                    if (pct != null && pct < lowestPct) { lowestPct = pct.toFloat(); }
+                }
+            }
+            if (lowestPct < 10.0) {
+                dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
+                dc.drawText(w - pad, rowH * 2 + pad, Graphics.FONT_SMALL,
+                            lowestPct.format("%.0f") + "%", Graphics.TEXT_JUSTIFY_RIGHT);
+            }
         }
 
-        // Row 4: Distance
-        drawCell(dc, 0, rowH * 3, w, rowH, _distance != null ? _distance.format("%.1f")     : "--", "MI",  true, pad, false);
+        // Row 4: W' Balance (left) | EF Drift (right)
+        drawCell(dc, 0,     rowH * 3, w / 2, rowH, wBalStr, "%",   false, pad, wBalInverse);
+        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, efStr,   "+/-", false, pad, efInverse);
 
         // ── Red dividers ──────────────────────────────────────────────────────
         dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
         dc.setPenWidth(2);
-        dc.drawLine(w / 2, 0,       w / 2, rowH);
-        dc.drawLine(0,     rowH,     w,     rowH);
-        dc.drawLine(0,     rowH * 2, w,     rowH * 2);
-        dc.drawLine(0,     rowH * 3, w,     rowH * 3);
+        dc.drawLine(w / 2, 0,         w / 2, rowH);      // row 1 vertical split
+        dc.drawLine(0,     rowH,       w,     rowH);      // row 1/2
+        dc.drawLine(0,     rowH * 2,   w,     rowH * 2); // row 2/3
+        dc.drawLine(0,     rowH * 3,   w,     rowH * 3); // row 3/4
+        dc.drawLine(w / 2, rowH * 3,   w / 2, h);        // row 4 vertical split
     }
 
     // ── alertState() ─────────────────────────────────────────────────────────
     // Returns 0 (normal), 1 (warning), or 2 (alert)
-    // value: the metric, warnThreshold / alertThreshold: the two levels
     function alertState(value as Lang.Number?, warnThreshold as Lang.Number,
                         alertThreshold as Lang.Number) as Lang.Number {
-        if (value == null)                   { return 0; }
-        if (value >= alertThreshold)         { return 2; }
-        if (value >= warnThreshold)          { return 1; }
+        if (value == null)           { return 0; }
+        if (value >= alertThreshold) { return 2; }
+        if (value >= warnThreshold)  { return 1; }
         return 0;
     }
 
     // ── resolveInverse() ─────────────────────────────────────────────────────
-    // Converts alert state + combined flag into a boolean for drawCell
-    //   state 0 → normal (false)
-    //   state 1 → solid inverse (true, no flash)
-    //   state 2 → slow flash (_flashToggle)
-    //   combined → escalate to flash even if state is only 1
+    // state 0 → normal, 1 → solid inverse, 2 → flash, combined → escalate to flash
     function resolveInverse(state as Lang.Number,
                             combined as Lang.Boolean) as Lang.Boolean {
-        if (state == 0)                      { return false; }
-        if (state == 2 || combined)          { return _flashToggle; }
-        return true;  // state 1, not combined — solid inverse
+        if (state == 0)             { return false; }
+        if (state == 2 || combined) { return _flashToggle; }
+        return true;
     }
 
     // ── fitNumberFont() ───────────────────────────────────────────────────────
-    // Largest numeric font that fits maxHeight
     function fitNumberFont(maxHeight as Lang.Number) as Graphics.FontType {
         var fonts = [
             Graphics.FONT_NUMBER_THAI_HOT,
@@ -276,7 +340,6 @@ class MyDataFieldView extends WatchUi.DataField {
     }
 
     // ── fitFont() ─────────────────────────────────────────────────────────────
-    // Largest general font that fits maxHeight
     function fitFont(maxHeight as Lang.Number) as Graphics.FontType {
         var fonts = [
             Graphics.FONT_LARGE,
@@ -294,7 +357,7 @@ class MyDataFieldView extends WatchUi.DataField {
     }
 
     // ── drawCell() ────────────────────────────────────────────────────────────
-    // Renders a single tile with value (left 75%) and unit label (right 25%)
+    // Renders a single tile: value in left 75%, unit label in right 25%
     // inverse=true fills black background with white text
     function drawCell(dc as Graphics.Dc,
                       x as Lang.Number, y as Lang.Number,
@@ -303,11 +366,11 @@ class MyDataFieldView extends WatchUi.DataField {
                       leftUnit as Lang.Boolean, pad as Lang.Number,
                       inverse as Lang.Boolean) as Void {
 
-        var cy         = y + cellH / 2;
-        var valueW     = cellW * 3 / 4;
-        var unitW      = cellW - valueW;
-        var valueFont  = fitNumberFont(cellH);
-        var unitFont   = fitFont(cellH);
+        var cy        = y + cellH / 2;
+        var valueW    = cellW * 3 / 4;
+        var unitW     = cellW - valueW;
+        var valueFont = fitNumberFont(cellH);
+        var unitFont  = fitFont(cellH);
 
         if (inverse) {
             dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
@@ -317,11 +380,9 @@ class MyDataFieldView extends WatchUi.DataField {
             dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
         }
 
-        // Value — centered in left 75% of tile
         dc.drawText(x + valueW / 2, cy, valueFont, value,
                     Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
 
-        // Unit label — right 25% of tile
         dc.setColor(inverse ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK,
                     Graphics.COLOR_TRANSPARENT);
         var unitJustify = leftUnit

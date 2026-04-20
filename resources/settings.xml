@@ -11,16 +11,16 @@
     <setting propertyKey="@Properties.pwrAlert" title="@Strings.pwrAlertTitle">
         <settingConfig type="numeric" min="0" max="2000"/>
     </setting>
-    <setting propertyKey="@Properties.pwrLow" title="@Strings.pwrLowTitle">
-        <settingConfig type="numeric" min="0" max="2000"/>
-    </setting>
     <setting propertyKey="@Properties.npWarn" title="@Strings.npWarnTitle">
         <settingConfig type="numeric" min="0" max="2000"/>
     </setting>
     <setting propertyKey="@Properties.npAlert" title="@Strings.npAlertTitle">
         <settingConfig type="numeric" min="0" max="2000"/>
     </setting>
-    <setting propertyKey="@Properties.lowPwrCycles" title="@Strings.lowPwrCyclesTitle">
-        <settingConfig type="numeric" min="10" max="300"/>
+    <setting propertyKey="@Properties.wPrime" title="@Strings.wPrimeTitle">
+        <settingConfig type="numeric" min="5000" max="50000"/>
+    </setting>
+    <setting propertyKey="@Properties.cp" title="@Strings.cpTitle">
+        <settingConfig type="numeric" min="50" max="600"/>
     </setting>
 </settings>

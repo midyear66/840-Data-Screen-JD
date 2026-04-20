@@ -4,8 +4,8 @@
     <string id="hrAlertTitle">HR Alert (bpm)</string>
     <string id="pwrWarnTitle">Power Warning (w)</string>
     <string id="pwrAlertTitle">Power Alert (w)</string>
-    <string id="pwrLowTitle">Power Low / Bonk (w)</string>
     <string id="npWarnTitle">NP Warning (w)</string>
     <string id="npAlertTitle">NP Alert (w)</string>
-    <string id="lowPwrCyclesTitle">Bonk Delay (sec)</string>
+    <string id="wPrimeTitle">W' Capacity (J)</string>
+    <string id="cpTitle">Critical Power (w)</string>
 </strings>

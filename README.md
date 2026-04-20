@@ -1,70 +1,84 @@
 # MyJDScreen
 
-A custom Garmin Connect IQ data field for the Edge 840 (and compatible devices) that displays four key cycling metrics in a clean, high-visibility layout — with a two-stage alert system tuned for hot-weather Z2 riding.
+A custom Garmin Connect IQ data field for the Edge 840 built for **Judgment Day** — a 10-trail, 24-hour, ~70-mile mountain bike event. Optimized for Z2 ultra-endurance pacing with real-time stamina and fatigue indicators.
 
 ## Layout
 
 ```
 ┌─────────────┬─────────────┐
-│   POWER  W  │   NP     NP │
+│   POWER  W  │   NP     NP │  row 1 — instant power | normalized power
 ├─────────────┴─────────────┤
-│          HEART RATE   BPM │
+│          HEART RATE   BPM │  row 2 — heart rate
 ├───────────────────────────┤
-│            CADENCE    RPM │
-├───────────────────────────┤
-│           DISTANCE     MI │
-└───────────────────────────┘
+│           DISTANCE     MI │  row 3 — elapsed distance
+├─────────────┬─────────────┤
+│  W'bal   %  │   EF    +/- │  row 4 — anaerobic reserve | efficiency drift
+└─────────────┴─────────────┘
 ```
 
-- **Row 1:** Instant power (left) and Normalized Power — Coggan 30s rolling NP (right)
-- **Row 2:** Heart rate with BPM unit
-- **Row 3:** Cadence with RPM unit
-- **Row 4:** Distance in miles
+- **Row 1:** Instant power (W) on the left; Coggan Normalized Power (NP) on the right. Red vertical divider.
+- **Row 2:** Heart rate (BPM), full width.
+- **Row 3:** Elapsed distance in miles. When any paired sensor battery drops below 10%, the lowest percentage is overlaid in red (top-right corner of this tile).
+- **Row 4:** W' Balance percentage (left) and Efficiency Factor drift (right). Red vertical divider.
 
-Rows are separated by red dividers.
+All rows are separated by red horizontal dividers.
+
+---
+
+## Metrics
+
+### W' Balance (Skiba 2012)
+Tracks remaining anaerobic capacity as a percentage of your total W' reserve.
+
+- **Drain:** every second above Critical Power (CP), `W'bal -= power - CP`
+- **Recovery:** every second at or below CP, `W'bal += (W' - W'bal) / 550` (τ = 550 s)
+- Shows `--` for the first 60 seconds of valid power data
+- Alerts when stamina is running low
+
+### Efficiency Factor Drift
+Tracks whether your aerobic engine is fading — power output relative to heart rate, compared to your ride's opening baseline.
+
+- **Baseline:** Welford running mean of the first 600 valid power+HR samples (~10 min warm-up)
+- **Current:** rolling mean of the last 120 valid samples (2 min window)
+- **Drift:** `round((current - baseline) / baseline × 100)` — displayed as a signed integer (e.g. `+3` or `-6`)
+- Shows `--` until the baseline is established
+- Negative drift means the engine is fading at the same HR; positive means you're getting stronger
+
+### Normalized Power
+Coggan algorithm: 4th root of the Welford running mean of (30-second rolling average power)⁴. Valid once 30 seconds of data have accumulated.
 
 ---
 
 ## Alert System
 
-Each of the power and HR tiles uses a **two-stage alert**:
+Each metric uses a **two-stage alert**:
 
 | Stage | Display | Meaning |
 |-------|---------|---------|
-| Normal | Black text on white | Within zone |
+| Normal | Black text on white | Within target range |
 | Warning | Solid inverse (white text, black bg) | Approaching limit — pay attention |
-| Alert | Slow flash (~0.5 Hz) | Over limit — back off now |
+| Alert | Slow flash (~0.5 Hz) | Over limit — act now |
 
-### Thresholds (defaults tuned for FTP 171w, Max HR 174 bpm, LTHR ~147 bpm)
+### Per-metric thresholds (defaults tuned for FTP 171w, Max HR 174 bpm, LTHR ~147 bpm)
 
 | Metric | Warning | Alert |
 |--------|---------|-------|
-| Instant power | 120w (approaching Z2 ceiling) | 135w (into Z3) |
-| Normalized power | 128w | 145w |
-| Heart rate | 138 bpm (top of Z3) | 147 bpm (LTHR) |
-
-All thresholds are user-configurable — see [Configuring Thresholds](#configuring-thresholds) below.
+| Instant power | ≥ 120w | ≥ 135w |
+| Normalized power | ≥ 128w | ≥ 145w |
+| Heart rate | ≥ 138 bpm | ≥ 147 bpm |
+| W' Balance | < 40% | < 20% (flash) |
+| EF Drift | ≤ −5% | ≤ −10% (flash) |
 
 ### Combined Condition
-When **both** instant power and HR are at warning or above simultaneously, both tiles escalate to flashing — even if neither has crossed its individual alert threshold. This catches the "quietly overcooked" scenario that single-metric alerts miss.
+When **both** instant power and HR are at warning or above simultaneously, both tiles escalate to flashing regardless of their individual alert thresholds. This catches the "quietly overcooked" scenario single-metric alerts miss.
 
-### Low-Power / Bonk Alert
-If instant power stays below 88w (Z2 floor) for 60+ consecutive seconds **and** HR is also dropping below 122 bpm, the cadence tile flashes as a fatigue/bonk check. The duration threshold is also configurable.
-
----
-
-## Other Features
-
-- Fonts scale to fill each row for maximum readability
-- Displays `--` until a sensor connects
-- Returns to `--` after 5 consecutive missed sensor readings
-- Red battery warning (`X%`) appears in the cadence tile when battery drops below 10%
+Note: W' Balance and EF Drift alerts are intentionally inverted — low values are bad — so they are handled independently from the combined condition.
 
 ---
 
-## Configuring Thresholds
+## Configuring Settings
 
-All eight alert thresholds are configurable without recompiling. Defaults match the author's physiology — tune them to your own FTP, max HR, and LTHR.
+All thresholds and model parameters are configurable without recompiling.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -72,16 +86,14 @@ All eight alert thresholds are configurable without recompiling. Defaults match 
 | HR Alert (bpm) | 147 | Flashing — at LTHR, back off |
 | Power Warning (w) | 120 | Solid inverse — approaching Z2 ceiling |
 | Power Alert (w) | 135 | Flashing — into Z3 |
-| Power Low / Bonk (w) | 88 | Below Z2 floor, starts bonk timer |
 | NP Warning (w) | 128 | Solid inverse — sustained effort getting costly |
 | NP Alert (w) | 145 | Flashing — trail variability adding up |
-| Bonk Delay (sec) | 60 | Seconds below bonk threshold before cadence tile flashes |
+| W' Capacity (J) | 20000 | Total anaerobic reserve in joules |
+| Critical Power (w) | 171 | Threshold between aerobic and anaerobic (≈ FTP) |
 
-### How to change settings
+**In the simulator:** Settings → open the settings dialog for the data field.
 
-**In the simulator:** Settings menu → open the settings dialog for the data field.
-
-**On the device (sideloaded via USB):** Settings are stored in `resources/properties.xml`. Edit the default values and rebuild/reinstall.
+**On device:** Edit default values in `resources/properties.xml` and rebuild/reinstall.
 
 ---
 
@@ -128,8 +140,6 @@ Use **[OpenMTP](https://github.com/ganeshrvel/openmtp)** to transfer files to yo
 ---
 
 ## Simulator
-
-To test without a physical device:
 
 1. Run **Monkey C: Run** from the VS Code command palette (not "Run Test")
 2. The Connect IQ simulator will launch
