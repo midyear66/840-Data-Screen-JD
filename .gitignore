@@ -1,6 +1,7 @@
 .vscode/*-settings.json
 bin/*.prg
 bin/*.prg.debug.xml
+bin/*.json
 bin/gen/
 bin/mir/
 bin/internal-mir/
