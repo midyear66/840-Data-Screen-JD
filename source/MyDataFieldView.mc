@@ -287,7 +287,7 @@ class MyDataFieldView extends WatchUi.DataField {
 
         // Row 4: W' Balance (left) | EF Drift (right)
         drawCell(dc, 0,     rowH * 3, w / 2, rowH, wBalStr, "%",   false, pad, wBalInverse);
-        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, efStr,   "+/-", false, pad, efInverse);
+        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, efStr,   "",    false, pad, efInverse);
 
         // ── Red dividers ──────────────────────────────────────────────────────
         dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
