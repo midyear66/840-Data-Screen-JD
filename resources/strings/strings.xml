@@ -8,4 +8,7 @@
     <string id="npAlertTitle">NP Alert (w)</string>
     <string id="wPrimeTitle">W' Capacity (J)</string>
     <string id="cpTitle">Critical Power (w)</string>
+    <string id="hrRestTitle">Resting HR (bpm)</string>
+    <string id="hrMaxTitle">Max HR (bpm)</string>
+    <string id="strainKTitle">Strain K (calibration)</string>
 </strings>

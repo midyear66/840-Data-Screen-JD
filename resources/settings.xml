@@ -23,4 +23,13 @@
     <setting propertyKey="@Properties.cp" title="@Strings.cpTitle">
         <settingConfig type="numeric" min="50" max="600"/>
     </setting>
+    <setting propertyKey="@Properties.hrRest" title="@Strings.hrRestTitle">
+        <settingConfig type="numeric" min="30" max="100"/>
+    </setting>
+    <setting propertyKey="@Properties.hrMax" title="@Strings.hrMaxTitle">
+        <settingConfig type="numeric" min="120" max="220"/>
+    </setting>
+    <setting propertyKey="@Properties.strainK" title="@Strings.strainKTitle">
+        <settingConfig type="numeric" min="20" max="500"/>
+    </setting>
 </settings>

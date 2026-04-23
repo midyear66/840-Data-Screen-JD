@@ -12,14 +12,14 @@ A custom Garmin Connect IQ data field for the Edge 840 built for **Judgment Day*
 ├───────────────────────────┤
 │           DISTANCE     MI │  row 3 — elapsed distance
 ├─────────────┬─────────────┤
-│  W'bal   %  │   PC     PC │  row 4 — anaerobic reserve | performance condition
+│  W'bal   %  │   ST     ST │  row 4 — anaerobic reserve | cumulative strain
 └─────────────┴─────────────┘
 ```
 
 - **Row 1:** Instant power (W) on the left; Coggan Normalized Power (NP) on the right. Red vertical divider.
 - **Row 2:** Heart rate (BPM), full width.
 - **Row 3:** Elapsed distance in miles. When any paired sensor battery drops below 10%, the lowest percentage is overlaid in red (top-right corner of this tile).
-- **Row 4:** W' Balance percentage (left) and Garmin Performance Condition (right). Red vertical divider.
+- **Row 4:** W' Balance percentage (left) and Strain (right) — `cumulative / +this-ride`. Red vertical divider.
 
 All rows are separated by red horizontal dividers.
 
@@ -35,12 +35,31 @@ Tracks remaining anaerobic capacity as a percentage of your total W' reserve.
 - Shows `--` for the first 60 seconds of valid power data
 - Alerts when stamina is running low
 
-### Performance Condition
-Garmin's built-in Firstbeat metric — a real-time assessment of your ability to perform compared to your average fitness level, derived from power, heart rate, and HRV. Read directly from `Activity.Info.currentPerformanceCondition` so the number shown on the tile matches the Performance Condition graph in Garmin Connect for the same ride.
+### Strain
+Whoop-style cumulative cardiovascular load on a **0–21 scale**, computed from heart rate alone (no power dependency) so it always populates — unlike Performance Condition, which frequently never establishes on low-Z2 or highly variable MTB rides.
 
-- Shows `--` until the Edge establishes a value (typically 6–20 minutes in)
-- Displayed as a signed integer. Garmin's scale: `> 10` excellent, `2..10` good, `-1..1` baseline, `-10..-2` fair, `-20..-11` poor
-- No drift during coasting or stops — the device freezes the last value instead of decaying it
+**Formula.** Banister TRIMP accumulated per second:
+
+```
+HRR   = clamp((HR − HRrest) / (HRmax − HRrest), 0, 1)
+dTRIMP/s = HRR × 0.64 × e^(1.92·HRR) / 60
+strain = 21 × (1 − e^(−TRIMP / K))
+```
+
+**Scale (Whoop-aligned).**
+
+| Strain | Band |
+|--------|------|
+| 0–9 | Light — easy spin, recovery |
+| 10–13 | Moderate — solid Z2, sustainable all day |
+| 14–17 | Strenuous — tempo, hard group ride |
+| 18–21 | All-out — race efforts, epic days |
+
+**Event accumulation — 6 AM reset.** Strain persists across activity stop/start, power-off, and reboot via `Application.Storage`. All rides started between **6 AM local and the next 6 AM local** are treated as one event — perfect for Judgment Day's 10-trail, 24-hour format. The first ride after 6 AM the following morning starts fresh.
+
+**Display format.** `"14 / +2"` — cumulative event strain (left) and this-activity contribution (right). Pacing signal: if you're 6 hours into JD and cumulative strain is already 15, you're cooking.
+
+**Calibration.** `strainK` tunes the curve. Default `K = 60` anchors a 1-hour low-Z2 ride (Strava Relative Effort ≈ 22) around strain 11. Bump `K` higher if values read too hot; lower if they feel too cool. A 24-hour event at average HRR ~0.4 saturates near strain 21.
 
 ### Normalized Power
 Coggan algorithm: 4th root of the Welford running mean of (30-second rolling average power)⁴. Valid once 30 seconds of data have accumulated.
@@ -65,12 +84,12 @@ Each metric uses a **two-stage alert**:
 | Normalized power | ≥ 128w | ≥ 145w |
 | Heart rate | ≥ 138 bpm | ≥ 147 bpm |
 | W' Balance | < 40% | < 20% (flash) |
-| Performance Condition | — | — (display only) |
+| Strain | — | — (display only) |
 
 ### Combined Condition
 When **both** instant power and HR are at warning or above simultaneously, both tiles escalate to flashing regardless of their individual alert thresholds. This catches the "quietly overcooked" scenario single-metric alerts miss.
 
-Note: W' Balance alerts are intentionally inverted — low values are bad — so they are handled independently from the combined condition. Performance Condition is currently display-only (no warning/alert styling).
+Note: W' Balance alerts are intentionally inverted — low values are bad — so they are handled independently from the combined condition. Strain is currently display-only (no warning/alert styling).
 
 ---
 
@@ -88,6 +107,9 @@ All thresholds and model parameters are configurable without recompiling.
 | NP Alert (w) | 145 | Flashing — trail variability adding up |
 | W' Capacity (J) | 20000 | Total anaerobic reserve in joules |
 | Critical Power (w) | 171 | Threshold between aerobic and anaerobic (≈ FTP) |
+| Resting HR (bpm) | 52 | HRrest for Strain (HRR denominator) |
+| Max HR (bpm) | 174 | HRmax for Strain (HRR denominator) |
+| Strain K | 60 | Strain curve calibration — lower = hotter, higher = cooler |
 
 **In the simulator:** Settings → open the settings dialog for the data field.
 

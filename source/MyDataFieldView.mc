@@ -22,9 +22,12 @@ import Toybox.WatchUi;
 //    Recovery: W'bal += (W' - W'bal) / 550 when power <= CP  (τ = 550s)
 //    Warning < 40%, Alert (flash) < 20%
 //
-//  PERFORMANCE CONDITION — Firstbeat metric provided by the Edge.
-//    Read directly from Activity.Info.currentPerformanceCondition.
-//    Null until the device establishes a value (~6–20 min into the ride).
+//  STRAIN — Whoop-style cumulative cardiovascular load on a 0–21 scale.
+//    Banister TRIMP (HRR-based) accumulated per second; mapped via
+//    21 × (1 − e^(−TRIMP/K)). Persists across activities via
+//    Application.Storage. Resets at 6 AM local — all rides between
+//    6 AM and 6 AM count as one event (e.g., Judgment Day's 10 trails).
+//    Display: "cumulative / +this-ride".
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MyDataFieldView extends WatchUi.DataField {
@@ -33,7 +36,6 @@ class MyDataFieldView extends WatchUi.DataField {
     var _power     as Lang.Number? = null;
     var _normPower as Lang.Number? = null;
     var _distance  as Lang.Float?  = null;
-    var _perfCond  as Lang.Number? = null;
 
     var _hrMiss    = 0;
     var _powerMiss = 0;
@@ -70,6 +72,12 @@ class MyDataFieldView extends WatchUi.DataField {
     var _wPrimeSeconds as Lang.Number  = 0;
     var _wPrimeValid   as Lang.Boolean = false;
 
+    // ── Strain (Whoop-style cumulative load) ──────────────────────────────────
+    var _hrRestVal as Lang.Number = 52;
+    var _hrMaxVal  as Lang.Number = 174;
+    var _strainK   as Lang.Number = 60;
+    var _strain    as StrainTracker;
+
     function initialize() {
         DataField.initialize();
 
@@ -78,6 +86,9 @@ class MyDataFieldView extends WatchUi.DataField {
 
         loadSettings();
         _wPrimeBal = _wPrime.toFloat();  // sync after loadSettings() may change _wPrime
+
+        _strain = new StrainTracker(_hrRestVal, _hrMaxVal, _strainK);
+        _strain.onActivityStart();
     }
 
     // ── loadSettings() — read user-configured thresholds from storage ─────────
@@ -90,6 +101,9 @@ class MyDataFieldView extends WatchUi.DataField {
         _npAlert  = Application.Properties.getValue("npAlert")  as Lang.Number;
         _wPrime   = Application.Properties.getValue("wPrime")   as Lang.Number;
         _cp       = Application.Properties.getValue("cp")       as Lang.Number;
+        _hrRestVal = Application.Properties.getValue("hrRest")  as Lang.Number;
+        _hrMaxVal  = Application.Properties.getValue("hrMax")   as Lang.Number;
+        _strainK   = Application.Properties.getValue("strainK") as Lang.Number;
         // Clamp W'bal if user lowers W' mid-ride to prevent display > 100%
         if (_wPrimeBal > _wPrime.toFloat()) {
             _wPrimeBal = _wPrime.toFloat();
@@ -99,6 +113,9 @@ class MyDataFieldView extends WatchUi.DataField {
     // ── onSettingsChanged() — called when user edits settings in Garmin Connect
     function onSettingsChanged() as Void {
         loadSettings();
+        if (_strain != null) {
+            _strain.initialize(_hrRestVal, _hrMaxVal, _strainK);
+        }
         WatchUi.requestUpdate();
     }
 
@@ -164,11 +181,8 @@ class MyDataFieldView extends WatchUi.DataField {
             if (_wPrimeSeconds >= 60) { _wPrimeValid = true; }
         }
 
-        // ── Performance Condition (Firstbeat, provided by the device) ─────────
-        // Established ~6–20 min in; stays null until the Edge publishes a value.
-        if (info has :currentPerformanceCondition && info.currentPerformanceCondition != null) {
-            _perfCond = info.currentPerformanceCondition;
-        }
+        // ── Strain (Banister TRIMP, cumulative across event) ──────────────────
+        _strain.update(_hr);
     }
 
     // ── onUpdate() — render the screen ───────────────────────────────────────
@@ -208,8 +222,9 @@ class MyDataFieldView extends WatchUi.DataField {
             }
         }
 
-        // ── Performance Condition display ─────────────────────────────────────
-        var pcStr = (_perfCond != null) ? _perfCond.toString() : "--";
+        // ── Strain display ────────────────────────────────────────────────────
+        var strainStr = _strain.getCumulative().toString() + " / +" +
+                        _strain.getRideDelta().toString();
 
         // ── Draw tiles ────────────────────────────────────────────────────────
 
@@ -243,9 +258,9 @@ class MyDataFieldView extends WatchUi.DataField {
             }
         }
 
-        // Row 4: W' Balance (left) | Performance Condition (right)
-        drawCell(dc, 0,     rowH * 3, w / 2, rowH, wBalStr, "%",   false, pad, wBalInverse);
-        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, pcStr,   "PC",  false, pad, false);
+        // Row 4: W' Balance (left) | Strain (right)
+        drawCell(dc,     0,     rowH * 3, w / 2, rowH, wBalStr,   "%",  false, pad, wBalInverse);
+        drawCellText(dc, w / 2, rowH * 3, w / 2, rowH, strainStr, "ST", false, pad, false);
 
         // ── Red dividers ──────────────────────────────────────────────────────
         dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
@@ -328,6 +343,44 @@ class MyDataFieldView extends WatchUi.DataField {
         var valueW    = cellW * 3 / 4;
         var unitW     = cellW - valueW;
         var valueFont = fitNumberFont(cellH);
+        var unitFont  = fitFont(cellH);
+
+        if (inverse) {
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+            dc.fillRectangle(x, y, cellW, cellH);
+            dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        } else {
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
+        }
+
+        dc.drawText(x + valueW / 2, cy, valueFont, value,
+                    Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+
+        dc.setColor(inverse ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK,
+                    Graphics.COLOR_TRANSPARENT);
+        var unitJustify = leftUnit
+            ? Graphics.TEXT_JUSTIFY_LEFT
+            : Graphics.TEXT_JUSTIFY_CENTER;
+        var unitX = leftUnit ? x + valueW : x + valueW + unitW / 2;
+        dc.drawText(unitX, cy, unitFont, unit,
+                    unitJustify | Graphics.TEXT_JUSTIFY_VCENTER);
+    }
+
+    // ── drawCellText() ────────────────────────────────────────────────────────
+    // Like drawCell() but uses a text font for the value. Required when the
+    // value string contains non-digit characters (e.g., "14 / +2") since the
+    // NUMBER_HOT font family is digit-only.
+    function drawCellText(dc as Graphics.Dc,
+                          x as Lang.Number, y as Lang.Number,
+                          cellW as Lang.Number, cellH as Lang.Number,
+                          value as Lang.String, unit as Lang.String,
+                          leftUnit as Lang.Boolean, pad as Lang.Number,
+                          inverse as Lang.Boolean) as Void {
+
+        var cy        = y + cellH / 2;
+        var valueW    = cellW * 3 / 4;
+        var unitW     = cellW - valueW;
+        var valueFont = fitFont(cellH);
         var unitFont  = fitFont(cellH);
 
         if (inverse) {
