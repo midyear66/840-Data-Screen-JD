@@ -22,11 +22,9 @@ import Toybox.WatchUi;
 //    Recovery: W'bal += (W' - W'bal) / 550 when power <= CP  (τ = 550s)
 //    Warning < 40%, Alert (flash) < 20%
 //
-//  EF DRIFT — Efficiency Factor = power / HR.
-//    Baseline: Welford mean of first 600 valid samples (~10 min warmup).
-//    Current: rolling mean of last 120 valid samples (circular buffer).
-//    Drift = round((current - baseline) / baseline * 100) — signed %.
-//    Warning <= -5%, Alert (flash) <= -10%
+//  PERFORMANCE CONDITION — Firstbeat metric provided by the Edge.
+//    Read directly from Activity.Info.currentPerformanceCondition.
+//    Null until the device establishes a value (~6–20 min into the ride).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MyDataFieldView extends WatchUi.DataField {
@@ -35,6 +33,7 @@ class MyDataFieldView extends WatchUi.DataField {
     var _power     as Lang.Number? = null;
     var _normPower as Lang.Number? = null;
     var _distance  as Lang.Float?  = null;
+    var _perfCond  as Lang.Number? = null;
 
     var _hrMiss    = 0;
     var _powerMiss = 0;
@@ -71,24 +70,11 @@ class MyDataFieldView extends WatchUi.DataField {
     var _wPrimeSeconds as Lang.Number  = 0;
     var _wPrimeValid   as Lang.Boolean = false;
 
-    // ── Efficiency Factor drift ───────────────────────────────────────────────
-    var _efBaselineCount as Lang.Number  = 0;
-    var _efBaseline      as Lang.Float   = 0.0;
-    var _efBuf           as Lang.Array<Lang.Float or Null>;  // 120-sample circular buffer
-    var _efBufSum        as Lang.Float   = 0.0;
-    var _efBufIdx        as Lang.Number  = 0;
-    var _efBufCount      as Lang.Number  = 0;
-    var _efCurrent       as Lang.Float   = 0.0;
-    var _efValid         as Lang.Boolean = false;
-
     function initialize() {
         DataField.initialize();
 
         _npBuf = new [30];
         for (var i = 0; i < 30; i++) { _npBuf[i] = 0; }
-
-        _efBuf = new [120];
-        for (var i = 0; i < 120; i++) { _efBuf[i] = 0.0; }
 
         loadSettings();
         _wPrimeBal = _wPrime.toFloat();  // sync after loadSettings() may change _wPrime
@@ -178,28 +164,10 @@ class MyDataFieldView extends WatchUi.DataField {
             if (_wPrimeSeconds >= 60) { _wPrimeValid = true; }
         }
 
-        // ── Efficiency Factor drift ───────────────────────────────────────────
-        // Only valid when both power and HR are present and HR > 0
-        if (_power != null && _hr != null && (_hr as Lang.Number) > 0) {
-            var ef = (_power as Lang.Number).toFloat() / (_hr as Lang.Number).toFloat();
-
-            // Phase 1: build baseline from first 600 valid samples
-            if (_efBaselineCount < 600) {
-                _efBaselineCount += 1;
-                _efBaseline += (ef - _efBaseline) / _efBaselineCount.toFloat();
-                if (_efBaselineCount == 600) { _efValid = true; }
-            }
-
-            // Always maintain current 120s rolling buffer
-            _efBufSum -= (_efBuf[_efBufIdx] as Lang.Float);
-            _efBuf[_efBufIdx] = ef;
-            _efBufSum += ef;
-            _efBufIdx = (_efBufIdx + 1) % 120;
-            if (_efBufCount < 120) { _efBufCount += 1; }
-
-            if (_efBufCount > 0) {
-                _efCurrent = _efBufSum / _efBufCount.toFloat();
-            }
+        // ── Performance Condition (Firstbeat, provided by the device) ─────────
+        // Established ~6–20 min in; stays null until the Edge publishes a value.
+        if (info has :currentPerformanceCondition && info.currentPerformanceCondition != null) {
+            _perfCond = info.currentPerformanceCondition;
         }
     }
 
@@ -240,18 +208,8 @@ class MyDataFieldView extends WatchUi.DataField {
             }
         }
 
-        // ── EF Drift display and alert ────────────────────────────────────────
-        var efStr     = "--";
-        var efInverse = false;
-        if (_efValid && _efBaseline > 0.0) {
-            var drift = Math.round((_efCurrent - _efBaseline) / _efBaseline * 100.0).toNumber();
-            efStr = (drift >= 0) ? ("+" + drift.toString()) : drift.toString();
-            if (drift <= -10) {
-                efInverse = _flashToggle;
-            } else if (drift <= -5) {
-                efInverse = true;
-            }
-        }
+        // ── Performance Condition display ─────────────────────────────────────
+        var pcStr = (_perfCond != null) ? _perfCond.toString() : "--";
 
         // ── Draw tiles ────────────────────────────────────────────────────────
 
@@ -285,9 +243,9 @@ class MyDataFieldView extends WatchUi.DataField {
             }
         }
 
-        // Row 4: W' Balance (left) | EF Drift (right)
+        // Row 4: W' Balance (left) | Performance Condition (right)
         drawCell(dc, 0,     rowH * 3, w / 2, rowH, wBalStr, "%",   false, pad, wBalInverse);
-        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, efStr,   "",    false, pad, efInverse);
+        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, pcStr,   "PC",  false, pad, false);
 
         // ── Red dividers ──────────────────────────────────────────────────────
         dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);

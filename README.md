@@ -12,14 +12,14 @@ A custom Garmin Connect IQ data field for the Edge 840 built for **Judgment Day*
 ├───────────────────────────┤
 │           DISTANCE     MI │  row 3 — elapsed distance
 ├─────────────┬─────────────┤
-│  W'bal   %  │   EF    +/- │  row 4 — anaerobic reserve | efficiency drift
+│  W'bal   %  │   PC     PC │  row 4 — anaerobic reserve | performance condition
 └─────────────┴─────────────┘
 ```
 
 - **Row 1:** Instant power (W) on the left; Coggan Normalized Power (NP) on the right. Red vertical divider.
 - **Row 2:** Heart rate (BPM), full width.
 - **Row 3:** Elapsed distance in miles. When any paired sensor battery drops below 10%, the lowest percentage is overlaid in red (top-right corner of this tile).
-- **Row 4:** W' Balance percentage (left) and Efficiency Factor drift (right). Red vertical divider.
+- **Row 4:** W' Balance percentage (left) and Garmin Performance Condition (right). Red vertical divider.
 
 All rows are separated by red horizontal dividers.
 
@@ -35,14 +35,12 @@ Tracks remaining anaerobic capacity as a percentage of your total W' reserve.
 - Shows `--` for the first 60 seconds of valid power data
 - Alerts when stamina is running low
 
-### Efficiency Factor Drift
-Tracks whether your aerobic engine is fading — power output relative to heart rate, compared to your ride's opening baseline.
+### Performance Condition
+Garmin's built-in Firstbeat metric — a real-time assessment of your ability to perform compared to your average fitness level, derived from power, heart rate, and HRV. Read directly from `Activity.Info.currentPerformanceCondition` so the number shown on the tile matches the Performance Condition graph in Garmin Connect for the same ride.
 
-- **Baseline:** Welford running mean of the first 600 valid power+HR samples (~10 min warm-up)
-- **Current:** rolling mean of the last 120 valid samples (2 min window)
-- **Drift:** `round((current - baseline) / baseline × 100)` — displayed as a signed integer (e.g. `+3` or `-6`)
-- Shows `--` until the baseline is established
-- Negative drift means the engine is fading at the same HR; positive means you're getting stronger
+- Shows `--` until the Edge establishes a value (typically 6–20 minutes in)
+- Displayed as a signed integer. Garmin's scale: `> 10` excellent, `2..10` good, `-1..1` baseline, `-10..-2` fair, `-20..-11` poor
+- No drift during coasting or stops — the device freezes the last value instead of decaying it
 
 ### Normalized Power
 Coggan algorithm: 4th root of the Welford running mean of (30-second rolling average power)⁴. Valid once 30 seconds of data have accumulated.
@@ -67,12 +65,12 @@ Each metric uses a **two-stage alert**:
 | Normalized power | ≥ 128w | ≥ 145w |
 | Heart rate | ≥ 138 bpm | ≥ 147 bpm |
 | W' Balance | < 40% | < 20% (flash) |
-| EF Drift | ≤ −5% | ≤ −10% (flash) |
+| Performance Condition | — | — (display only) |
 
 ### Combined Condition
 When **both** instant power and HR are at warning or above simultaneously, both tiles escalate to flashing regardless of their individual alert thresholds. This catches the "quietly overcooked" scenario single-metric alerts miss.
 
-Note: W' Balance and EF Drift alerts are intentionally inverted — low values are bad — so they are handled independently from the combined condition.
+Note: W' Balance alerts are intentionally inverted — low values are bad — so they are handled independently from the combined condition. Performance Condition is currently display-only (no warning/alert styling).
 
 ---
 
