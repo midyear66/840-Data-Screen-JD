@@ -22,12 +22,14 @@ import Toybox.WatchUi;
 //    Recovery: W'bal += (W' - W'bal) / 550 when power <= CP  (τ = 550s)
 //    Warning < 40%, Alert (flash) < 20%
 //
-//  STRAIN — Whoop-style cumulative cardiovascular load on a 0–21 scale.
-//    Banister TRIMP (HRR-based) accumulated per second; mapped via
-//    21 × (1 − e^(−TRIMP/K)). Persists across activities via
-//    Application.Storage. Resets at 6 AM local — all rides between
-//    6 AM and 6 AM count as one event (e.g., Judgment Day's 10 trails).
-//    Display: "cumulative / +this-ride".
+//  EF DRIFT — Coggan/Friel Efficiency Factor decoupling vs morning baseline.
+//    EF = power/HR. Drift = (EF_baseline / EF_current) − 1.
+//    Baseline locks once 20 valid 1-min windows accumulate (~20 min of
+//    clean steady-state, typically warm-up + early trail 1).
+//    Persists across activities via Application.Storage. Resets at
+//    5 AM local — pre-event 5:30 AM warm-up seeds the baseline, all
+//    rides between 5 AM and the next 5 AM share it.
+//    Display: "X%" once locked, "--" while collecting.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MyDataFieldView extends WatchUi.DataField {
@@ -72,11 +74,9 @@ class MyDataFieldView extends WatchUi.DataField {
     var _wPrimeSeconds as Lang.Number  = 0;
     var _wPrimeValid   as Lang.Boolean = false;
 
-    // ── Strain (Whoop-style cumulative load) ──────────────────────────────────
+    // ── EF Drift (Coggan/Friel decoupling) ────────────────────────────────────
     var _hrRestVal as Lang.Number = 52;
-    var _hrMaxVal  as Lang.Number = 174;
-    var _strainK   as Lang.Number = 60;
-    var _strain    as StrainTracker;
+    var _efDrift   as EFDriftTracker;
 
     function initialize() {
         DataField.initialize();
@@ -87,8 +87,8 @@ class MyDataFieldView extends WatchUi.DataField {
         loadSettings();
         _wPrimeBal = _wPrime.toFloat();  // sync after loadSettings() may change _wPrime
 
-        _strain = new StrainTracker(_hrRestVal, _hrMaxVal, _strainK);
-        _strain.onActivityStart();
+        _efDrift = new EFDriftTracker(_hrRestVal);
+        _efDrift.onActivityStart();
     }
 
     // ── loadSettings() — read user-configured thresholds from storage ─────────
@@ -102,8 +102,6 @@ class MyDataFieldView extends WatchUi.DataField {
         _wPrime   = Application.Properties.getValue("wPrime")   as Lang.Number;
         _cp       = Application.Properties.getValue("cp")       as Lang.Number;
         _hrRestVal = Application.Properties.getValue("hrRest")  as Lang.Number;
-        _hrMaxVal  = Application.Properties.getValue("hrMax")   as Lang.Number;
-        _strainK   = Application.Properties.getValue("strainK") as Lang.Number;
         // Clamp W'bal if user lowers W' mid-ride to prevent display > 100%
         if (_wPrimeBal > _wPrime.toFloat()) {
             _wPrimeBal = _wPrime.toFloat();
@@ -113,8 +111,8 @@ class MyDataFieldView extends WatchUi.DataField {
     // ── onSettingsChanged() — called when user edits settings in Garmin Connect
     function onSettingsChanged() as Void {
         loadSettings();
-        if (_strain != null) {
-            _strain.initialize(_hrRestVal, _hrMaxVal, _strainK);
+        if (_efDrift != null) {
+            _efDrift.initialize(_hrRestVal);
         }
         WatchUi.requestUpdate();
     }
@@ -181,8 +179,8 @@ class MyDataFieldView extends WatchUi.DataField {
             if (_wPrimeSeconds >= 60) { _wPrimeValid = true; }
         }
 
-        // ── Strain (Banister TRIMP, cumulative across event) ──────────────────
-        _strain.update(_hr);
+        // ── EF Drift (Coggan/Friel decoupling vs morning baseline) ────────────
+        _efDrift.update(_hr, _power);
     }
 
     // ── onUpdate() — render the screen ───────────────────────────────────────
@@ -222,9 +220,9 @@ class MyDataFieldView extends WatchUi.DataField {
             }
         }
 
-        // ── Strain display ────────────────────────────────────────────────────
-        var strainStr = _strain.getCumulative().toString() + " / +" +
-                        _strain.getRideDelta().toString();
+        // ── EF Drift display ──────────────────────────────────────────────────
+        var efStr = _efDrift.isLocked() ?
+            _efDrift.getDriftPercent().toString() : "--";
 
         // ── Draw tiles ────────────────────────────────────────────────────────
 
@@ -258,9 +256,9 @@ class MyDataFieldView extends WatchUi.DataField {
             }
         }
 
-        // Row 4: W' Balance (left) | Strain (right)
-        drawCell(dc,     0,     rowH * 3, w / 2, rowH, wBalStr,   "%",  false, pad, wBalInverse);
-        drawCellText(dc, w / 2, rowH * 3, w / 2, rowH, strainStr, "ST", false, pad, false);
+        // Row 4: W' Balance (left) | EF Drift (right) — both chunky number font
+        drawCell(dc, 0,     rowH * 3, w / 2, rowH, wBalStr, "W'%", false, pad, wBalInverse);
+        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, efStr,   "EF%", false, pad, false);
 
         // ── Red dividers ──────────────────────────────────────────────────────
         dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
@@ -343,44 +341,6 @@ class MyDataFieldView extends WatchUi.DataField {
         var valueW    = cellW * 3 / 4;
         var unitW     = cellW - valueW;
         var valueFont = fitNumberFont(cellH);
-        var unitFont  = fitFont(cellH);
-
-        if (inverse) {
-            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
-            dc.fillRectangle(x, y, cellW, cellH);
-            dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        } else {
-            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
-        }
-
-        dc.drawText(x + valueW / 2, cy, valueFont, value,
-                    Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-
-        dc.setColor(inverse ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK,
-                    Graphics.COLOR_TRANSPARENT);
-        var unitJustify = leftUnit
-            ? Graphics.TEXT_JUSTIFY_LEFT
-            : Graphics.TEXT_JUSTIFY_CENTER;
-        var unitX = leftUnit ? x + valueW : x + valueW + unitW / 2;
-        dc.drawText(unitX, cy, unitFont, unit,
-                    unitJustify | Graphics.TEXT_JUSTIFY_VCENTER);
-    }
-
-    // ── drawCellText() ────────────────────────────────────────────────────────
-    // Like drawCell() but uses a text font for the value. Required when the
-    // value string contains non-digit characters (e.g., "14 / +2") since the
-    // NUMBER_HOT font family is digit-only.
-    function drawCellText(dc as Graphics.Dc,
-                          x as Lang.Number, y as Lang.Number,
-                          cellW as Lang.Number, cellH as Lang.Number,
-                          value as Lang.String, unit as Lang.String,
-                          leftUnit as Lang.Boolean, pad as Lang.Number,
-                          inverse as Lang.Boolean) as Void {
-
-        var cy        = y + cellH / 2;
-        var valueW    = cellW * 3 / 4;
-        var unitW     = cellW - valueW;
-        var valueFont = fitFont(cellH);
         var unitFont  = fitFont(cellH);
 
         if (inverse) {

@@ -7,3 +7,4 @@ bin/mir/
 bin/internal-mir/
 bin/test_*.prg
 bin/test_*.prg.debug.xml
+bin/external-mir/

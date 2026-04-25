@@ -8,6 +8,4 @@
     <property id="wPrime"   type="number">20000</property>
     <property id="cp"       type="number">171</property>
     <property id="hrRest"   type="number">52</property>
-    <property id="hrMax"    type="number">174</property>
-    <property id="strainK"  type="number">60</property>
 </properties>

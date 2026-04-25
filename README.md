@@ -12,14 +12,14 @@ A custom Garmin Connect IQ data field for the Edge 840 built for **Judgment Day*
 ├───────────────────────────┤
 │           DISTANCE     MI │  row 3 — elapsed distance
 ├─────────────┬─────────────┤
-│  W'bal   %  │   ST     ST │  row 4 — anaerobic reserve | cumulative strain
+│  W'bal   %  │   EF     EF │  row 4 — anaerobic reserve | EF drift vs baseline
 └─────────────┴─────────────┘
 ```
 
 - **Row 1:** Instant power (W) on the left; Coggan Normalized Power (NP) on the right. Red vertical divider.
 - **Row 2:** Heart rate (BPM), full width.
 - **Row 3:** Elapsed distance in miles. When any paired sensor battery drops below 10%, the lowest percentage is overlaid in red (top-right corner of this tile).
-- **Row 4:** W' Balance percentage (left) and Strain (right) — `cumulative / +this-ride`. Red vertical divider.
+- **Row 4:** W' Balance percentage (left) and EF Drift (right) — % HR-rise for same power vs the morning baseline. Red vertical divider.
 
 All rows are separated by red horizontal dividers.
 
@@ -35,31 +35,61 @@ Tracks remaining anaerobic capacity as a percentage of your total W' reserve.
 - Shows `--` for the first 60 seconds of valid power data
 - Alerts when stamina is running low
 
-### Strain
-Whoop-style cumulative cardiovascular load on a **0–21 scale**, computed from heart rate alone (no power dependency) so it always populates — unlike Performance Condition, which frequently never establishes on low-Z2 or highly variable MTB rides.
+### EF Drift
+Coggan/Friel **Efficiency Factor decoupling** — the cumulative-fatigue gold standard from *Training and Racing with a Power Meter* (Allen & Coggan). Unlike Strain (which saturates near 21 by hour 8 of a 24-hour event), EF drift never saturates, and it's grounded in measurable physiology rather than a tunable constant.
 
-**Formula.** Banister TRIMP accumulated per second:
+**Formula.**
 
 ```
-HRR   = clamp((HR − HRrest) / (HRmax − HRrest), 0, 1)
-dTRIMP/s = HRR × 0.64 × e^(1.92·HRR) / 60
-strain = 21 × (1 − e^(−TRIMP / K))
+EF       = power / HR
+drift    = (EF_baseline / EF_current) − 1     (positive = HR rising for same
+                                               power = cumulative fatigue)
 ```
 
-**Scale (Whoop-aligned).**
+**Underlying physiology.** As you fatigue, HR rises at the same wattage because of plasma volume loss (cardiovascular drift, Coyle 1990s), thermoregulatory shunt, glycogen depletion forcing recruitment of less-efficient muscle fibers, and elevated sympathetic drive.
 
-| Strain | Band |
-|--------|------|
-| 0–9 | Light — easy spin, recovery |
-| 10–13 | Moderate — solid Z2, sustainable all day |
-| 14–17 | Strenuous — tempo, hard group ride |
-| 18–21 | All-out — race efforts, epic days |
+**Reading guide.**
 
-**Event accumulation — 6 AM reset.** Strain persists across activity stop/start, power-off, and reboot via `Application.Storage`. All rides started between **6 AM local and the next 6 AM local** are treated as one event — perfect for Judgment Day's 10-trail, 24-hour format. The first ride after 6 AM the following morning starts fresh.
+| Drift | Meaning |
+|-------|---------|
+| 0–3% | Well-paced — sustainable indefinitely |
+| 3–7% | Warming to fatigue — monitor |
+| 7–12% | Cooked — eat, drink, cool down |
+| 12–18% | Dial back hard |
+| 18%+ | Pull-out territory |
 
-**Display format.** `"14 / +2"` — cumulative event strain (left) and this-activity contribution (right). Pacing signal: if you're 6 hours into JD and cumulative strain is already 15, you're cooking.
+(Allen & Coggan: <5% within a single ride = well-paced aerobic effort.)
 
-**Calibration.** `strainK` tunes the curve. Default `K = 60` anchors a 1-hour low-Z2 ride (Strava Relative Effort ≈ 22) around strain 11. Bump `K` higher if values read too hot; lower if they feel too cool. A 24-hour event at average HRR ~0.4 saturates near strain 21.
+**Baseline establishment.** Opportunistic. Collect valid 1-min windows (power > 50 W, HR > HRrest+20) until 20 windows accumulate (~20 min of clean steady-state). Typically locks during a 5:30 AM warmup or early in trail 1. Tile shows `--` until baseline locks.
+
+**Event accumulation — 5 AM reset.** Baseline + last drift persist across activity stop/start, power-off, and reboot via `Application.Storage`. All rides started between **5 AM local and the next 5 AM local** share the same baseline — perfect for Judgment Day's 10-trail, 24-hour format. The 5 AM (rather than 6 AM) boundary lets a pre-event warm-up ride seed the baseline cleanly, before the start-line surge of trail 1 contaminates it.
+
+**Resume behavior.** On power-on, the tile shows the last persisted drift % immediately; live measurement takes over within ~5 min once the new rolling 5-min EF window fills.
+
+### Combined row-4 usage
+
+The two row-4 tiles answer different pacing questions on different timescales — W' Balance for the next climb (seconds), EF drift for the whole event (hours).
+
+| W' Bal | EF drift | What to do |
+|---|---|---|
+| 70–100% | 0–3% | Send the climb, push the pace |
+| 70–100% | 3–7% | Send the climb but easy recovery after |
+| 70–100% | 7–12% | Easy on the climb — save it for the finish |
+| 70–100% | 12%+ | **Don't dig** — preserve everything you have |
+| 40–70% | 0–3% | Pick spots, no junk surges |
+| 40–70% | 3–7% | Selective efforts only |
+| 40–70% | 7–12% | Soft-pedal, eat, drink |
+| 40–70% | 12%+ | **Recover hard** before next trail |
+| <40% | 0–3% | You went too hard recently; soft-pedal to rebuild W' |
+| <40% | 3–7% | Recover + refuel before next effort |
+| <40% | 7–12% | Walk/coast — let HR drop, eat |
+| <40% | 12%+ | **Trouble** — full stop, eat, drink, reassess |
+
+**Heuristics for JD:**
+- Glance at EF drift between trails (in the car). If it jumped >3% on the last trail, the next trail goes easier.
+- W' Balance is for in-trail climb decisions only — don't watch it on flats.
+- EF drift trending up faster than 1% per trail = started too hard.
+- Both numbers green at hour 12 = winning.
 
 ### Normalized Power
 Coggan algorithm: 4th root of the Welford running mean of (30-second rolling average power)⁴. Valid once 30 seconds of data have accumulated.
@@ -84,12 +114,12 @@ Each metric uses a **two-stage alert**:
 | Normalized power | ≥ 128w | ≥ 145w |
 | Heart rate | ≥ 138 bpm | ≥ 147 bpm |
 | W' Balance | < 40% | < 20% (flash) |
-| Strain | — | — (display only) |
+| EF Drift | — | — (display only) |
 
 ### Combined Condition
 When **both** instant power and HR are at warning or above simultaneously, both tiles escalate to flashing regardless of their individual alert thresholds. This catches the "quietly overcooked" scenario single-metric alerts miss.
 
-Note: W' Balance alerts are intentionally inverted — low values are bad — so they are handled independently from the combined condition. Strain is currently display-only (no warning/alert styling).
+Note: W' Balance alerts are intentionally inverted — low values are bad — so they are handled independently from the combined condition. EF Drift is currently display-only (no warning/alert styling).
 
 ---
 
@@ -107,9 +137,7 @@ All thresholds and model parameters are configurable without recompiling.
 | NP Alert (w) | 145 | Flashing — trail variability adding up |
 | W' Capacity (J) | 20000 | Total anaerobic reserve in joules |
 | Critical Power (w) | 171 | Threshold between aerobic and anaerobic (≈ FTP) |
-| Resting HR (bpm) | 52 | HRrest for Strain (HRR denominator) |
-| Max HR (bpm) | 174 | HRmax for Strain (HRR denominator) |
-| Strain K | 60 | Strain curve calibration — lower = hotter, higher = cooler |
+| Resting HR (bpm) | 52 | HRrest — used by EF Drift validity gate (HR > HRrest+20) |
 
 **In the simulator:** Settings → open the settings dialog for the data field.
 
