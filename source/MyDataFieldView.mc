@@ -257,8 +257,8 @@ class MyDataFieldView extends WatchUi.DataField {
         }
 
         // Row 4: W' Balance (left) | EF Drift (right) — both chunky number font
-        drawCell(dc, 0,     rowH * 3, w / 2, rowH, wBalStr, "W'%", false, pad, wBalInverse);
-        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, efStr,   "EF%", false, pad, false);
+        drawCell(dc, 0,     rowH * 3, w / 2, rowH, wBalStr, "W'", false, pad, wBalInverse);
+        drawCell(dc, w / 2, rowH * 3, w / 2, rowH, efStr,   "EF", false, pad, false);
 
         // ── Red dividers ──────────────────────────────────────────────────────
         dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
