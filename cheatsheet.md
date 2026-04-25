@@ -61,6 +61,7 @@
 - **Both row-4 tiles green at hour 12 = winning.**
 - **Walk a steep climb to recover W'** — it's free and fast.
 - **Eat before you're hungry, drink before you're thirsty.** Once EF drift starts climbing, you're already behind.
+- **W' Bal won't read 100% on cooked days** — that's intentional. Durability scaling shrinks effective CP/W' by ~2%/0.8% per 1000 kJ. By trail 9 your max-recovered W' might cap at 88%. If you see that, treat 88% as the new ceiling, not as a problem.
 
 ---
 

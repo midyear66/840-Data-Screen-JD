@@ -21,6 +21,8 @@ import Toybox.WatchUi;
 //    Drain: W'bal -= (power - CP) when power > CP
 //    Recovery: W'bal += (W' - W'bal) / 550 when power <= CP  (τ = 550s)
 //    Warning < 40%, Alert (flash) < 20%
+//    CP and W' are modulated by DurabilityTracker (cumulative kJ) so the
+//    tile correctly tightens as the day wears on.
 //
 //  EF DRIFT — Coggan/Friel Efficiency Factor decoupling vs morning baseline.
 //    EF = power/HR. Drift = (EF_baseline / EF_current) − 1.
@@ -78,6 +80,9 @@ class MyDataFieldView extends WatchUi.DataField {
     var _hrRestVal as Lang.Number = 52;
     var _efDrift   as EFDriftTracker;
 
+    // ── Durability (cumulative kJ → CP/W' decay) ──────────────────────────────
+    var _durability as DurabilityTracker;
+
     function initialize() {
         DataField.initialize();
 
@@ -89,6 +94,9 @@ class MyDataFieldView extends WatchUi.DataField {
 
         _efDrift = new EFDriftTracker(_hrRestVal);
         _efDrift.onActivityStart();
+
+        _durability = new DurabilityTracker();
+        _durability.onActivityStart();
     }
 
     // ── loadSettings() — read user-configured thresholds from storage ─────────
@@ -159,12 +167,14 @@ class MyDataFieldView extends WatchUi.DataField {
             _distance = info.elapsedDistance / 1609.344;
         }
 
-        // ── W' Balance (Skiba 2012) ───────────────────────────────────────────
-        // Only update when power is valid — no phantom recovery during dropouts
+        // ── W' Balance (Skiba 2012, durability-scaled) ────────────────────────
+        // Only update when power is valid — no phantom recovery during dropouts.
+        // CP and W' are scaled by accumulated kJ so the model tightens as the
+        // day wears on (Spragg/Maunder/Clark/Pugh durability research).
         if (_power != null) {
-            var p      = (_power as Lang.Number).toFloat();
-            var cpF    = _cp.toFloat();
-            var wPrimeF = _wPrime.toFloat();
+            var p       = (_power as Lang.Number).toFloat();
+            var cpF     = _cp.toFloat()     * _durability.getCpScale();
+            var wPrimeF = _wPrime.toFloat() * _durability.getWPrimeScale();
 
             if (p > cpF) {
                 _wPrimeBal -= (p - cpF);
@@ -181,6 +191,9 @@ class MyDataFieldView extends WatchUi.DataField {
 
         // ── EF Drift (Coggan/Friel decoupling vs morning baseline) ────────────
         _efDrift.update(_hr, _power);
+
+        // ── Durability (cumulative kJ across event-day) ───────────────────────
+        _durability.update(_power);
     }
 
     // ── onUpdate() — render the screen ───────────────────────────────────────

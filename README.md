@@ -27,13 +27,22 @@ All rows are separated by red horizontal dividers.
 
 ## Metrics
 
-### W' Balance (Skiba 2012)
+### W' Balance (Skiba 2012, durability-scaled)
 Tracks remaining anaerobic capacity as a percentage of your total W' reserve.
 
 - **Drain:** every second above Critical Power (CP), `W'bal -= power - CP`
 - **Recovery:** every second at or below CP, `W'bal += (W' - W'bal) / 550` (τ = 550 s)
 - Shows `--` for the first 60 seconds of valid power data
 - Alerts when stamina is running low
+
+**Durability scaling.** As cumulative kJ of work accumulates across the event-day, effective CP and W' shrink — the body genuinely loses sustainable power and anaerobic capacity over hours of hard riding (Spragg/Maunder/Clark/Pugh durability research, 2018–2024). A 175 W push that didn't dent W' on trail 1 may drain it quickly on trail 9 because effective CP has dropped 5–10%. Coefficients tuned to published trained-cyclist data:
+
+```
+CP_effective = CP × (1 − 0.020 × kJ_total/1000)   // ~2% per 1000 kJ
+W'_effective = W' × (1 − 0.008 × kJ_total/1000)   // ~0.8% per 1000 kJ
+```
+
+Floored at 0.7× to prevent absurd values. Cumulative kJ persists across rides via `Application.Storage` with the same 5 AM reset boundary as EF Drift.
 
 ### EF Drift
 Coggan/Friel **Efficiency Factor decoupling** — the cumulative-fatigue gold standard from *Training and Racing with a Power Meter* (Allen & Coggan). Unlike Strain (which saturates near 21 by hour 8 of a 24-hour event), EF drift never saturates, and it's grounded in measurable physiology rather than a tunable constant.
