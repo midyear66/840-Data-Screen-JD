@@ -92,7 +92,7 @@ class MyDataFieldView extends WatchUi.DataField {
         loadSettings();
         _wPrimeBal = _wPrime.toFloat();  // sync after loadSettings() may change _wPrime
 
-        _efDrift = new EFDriftTracker(_hrRestVal);
+        _efDrift = new EFDriftTracker(_hrRestVal, _cp);
         _efDrift.onActivityStart();
 
         _durability = new DurabilityTracker();
@@ -120,7 +120,7 @@ class MyDataFieldView extends WatchUi.DataField {
     function onSettingsChanged() as Void {
         loadSettings();
         if (_efDrift != null) {
-            _efDrift.initialize(_hrRestVal);
+            _efDrift.setConfig(_hrRestVal, _cp);
         }
         WatchUi.requestUpdate();
     }

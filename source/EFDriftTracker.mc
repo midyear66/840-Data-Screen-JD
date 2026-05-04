@@ -11,8 +11,13 @@ import Toybox.Time.Gregorian;
 //  drift    = (EF_baseline / EF_current) − 1   (positive = HR rising for same
 //             power = cumulative fatigue)
 //
-//  Baseline locks once 20 valid 1-min windows accumulate. A window is "valid"
-//  when power > 50 W and HR > HRrest + 20 (filters out coasting on MTB).
+//  Validity gate (sustained-aerobic only): a sample counts only when the
+//  30-sec rolling power lies in [0.50×CP, 1.10×CP] AND HR > HRrest + 20.
+//  This filters BOTH coasting AND burst climbs above CP — both contaminate
+//  the rolling EF on bursty MTB and would otherwise produce nonsensical
+//  negative drift readings.
+//
+//  Baseline locks once 20 valid 1-min windows accumulate.
 //
 //  Reset at 5 AM local: a pre-event warm-up at 5:30 AM seeds the baseline,
 //  and any rides between 5 AM and the next 5 AM share it. Cleaner than
@@ -26,14 +31,25 @@ class EFDriftTracker {
     const STORAGE_LAST_DRIFT  = "efLastDrift";
     const STORAGE_LOCKED      = "efLocked";
 
-    const POWER_FLOOR         = 50;
-    const HR_FLOOR_MARGIN     = 20;
-    const WINDOW_SECONDS      = 60;
-    const BASELINE_WINDOWS    = 20;
-    const ROLLING_WINDOWS     = 5;
-    const SAVE_INTERVAL_TICKS = 60;
+    const HR_FLOOR_MARGIN      = 20;
+    const WINDOW_SECONDS       = 60;
+    const BASELINE_WINDOWS     = 20;
+    const ROLLING_WINDOWS      = 5;
+    const SAVE_INTERVAL_TICKS  = 60;
+    const POWER_ROLL_SECONDS   = 30;     // smooth instantaneous bursts
+    const POWER_BAND_LOW_FRAC  = 0.50;   // require sustained aerobic effort
+    const POWER_BAND_HIGH_FRAC = 1.10;   // exclude burst climbs above CP
 
-    var _hrRest as Lang.Number = 52;
+    var _hrRest as Lang.Number  = 52;
+    var _cp     as Lang.Number  = 171;
+    var _powerBandLow  as Lang.Float = 0.0;
+    var _powerBandHigh as Lang.Float = 0.0;
+
+    // 30-sec rolling power buffer (for the validity gate)
+    var _rollPwrBuf   as Lang.Array<Lang.Number or Null>;
+    var _rollPwrIdx   as Lang.Number = 0;
+    var _rollPwrCount as Lang.Number = 0;
+    var _rollPwrSum   as Lang.Number = 0;
 
     var _baselineEF       as Lang.Float   = 0.0;
     var _baselineLocked   as Lang.Boolean = false;
@@ -55,13 +71,18 @@ class EFDriftTracker {
     var _currentDrift as Lang.Float  = 0.0;
     var _saveCounter  as Lang.Number = 0;
 
-    function initialize(hrRest as Lang.Number) {
-        _hrRest = hrRest;
+    function initialize(hrRest as Lang.Number, cp as Lang.Number) {
+        setConfig(hrRest, cp);
+
         _rollingHR    = new [ROLLING_WINDOWS];
         _rollingPower = new [ROLLING_WINDOWS];
         for (var i = 0; i < ROLLING_WINDOWS; i++) {
             _rollingHR[i]    = 0.0;
             _rollingPower[i] = 0.0;
+        }
+        _rollPwrBuf = new [POWER_ROLL_SECONDS];
+        for (var i = 0; i < POWER_ROLL_SECONDS; i++) {
+            _rollPwrBuf[i] = 0;
         }
     }
 
@@ -111,13 +132,39 @@ class EFDriftTracker {
         _rollingIdx        = 0;
         _rollingCount      = 0;
         _saveCounter       = 0;
+
+        // Clear the 30-sec rolling power buffer — must refill before any
+        // sample passes the validity gate again
+        for (var i = 0; i < POWER_ROLL_SECONDS; i++) {
+            _rollPwrBuf[i] = 0;
+        }
+        _rollPwrIdx   = 0;
+        _rollPwrCount = 0;
+        _rollPwrSum   = 0;
     }
 
-    // Called every compute() tick (~1 Hz). Validity-gated: nulls, coasting,
-    // and below-working HR are ignored.
+    // Called every compute() tick (~1 Hz). Validity-gated: only seconds
+    // where the 30-sec rolling power sits in the sustained-aerobic band
+    // and HR is working contribute to baseline / drift computation.
     function update(hr as Lang.Number?, power as Lang.Number?) as Void {
-        if (hr == null || power == null) { return; }
-        if (power <= POWER_FLOOR || hr <= _hrRest + HR_FLOOR_MARGIN) { return; }
+        if (hr == null) { return; }
+
+        // Maintain 30-sec rolling power. Null/coast counts as 0 here so the
+        // average reflects actual recent effort.
+        var p = (power == null) ? 0 : power;
+        _rollPwrSum -= _rollPwrBuf[_rollPwrIdx];
+        _rollPwrBuf[_rollPwrIdx] = p;
+        _rollPwrSum += p;
+        _rollPwrIdx = (_rollPwrIdx + 1) % POWER_ROLL_SECONDS;
+        if (_rollPwrCount < POWER_ROLL_SECONDS) {
+            _rollPwrCount += 1;
+            return;  // can't gate until the 30-sec buffer is full
+        }
+
+        var rollPwr = _rollPwrSum.toFloat() / POWER_ROLL_SECONDS.toFloat();
+        if (rollPwr < _powerBandLow || rollPwr > _powerBandHigh) { return; }
+        if (hr <= _hrRest + HR_FLOOR_MARGIN) { return; }
+        if (power == null) { return; }
 
         _windowHRSum       += hr;
         _windowPowerSum    += power;
@@ -173,6 +220,16 @@ class EFDriftTracker {
             saveNow();
             _saveCounter = 0;
         }
+    }
+
+    // Update runtime config (HRrest, CP) without disturbing baseline or
+    // rolling buffers. Call from onSettingsChanged when user edits settings
+    // mid-ride.
+    function setConfig(hrRest as Lang.Number, cp as Lang.Number) as Void {
+        _hrRest = hrRest;
+        _cp     = cp;
+        _powerBandLow  = cp.toFloat() * POWER_BAND_LOW_FRAC;
+        _powerBandHigh = cp.toFloat() * POWER_BAND_HIGH_FRAC;
     }
 
     function saveNow() as Void {
