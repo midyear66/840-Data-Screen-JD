@@ -8,12 +8,12 @@
 
 | Tile | What it shows | Warn / Alert |
 |------|---------------|---------------|
-| **W** | Instant power | ≥ 120w warn · ≥ 135w alert |
-| **NP** | Coggan Normalized Power | ≥ 128w warn · ≥ 145w alert |
+| **W** | Power (3-second smoothed) | ≥ 120w warn · ≥ 135w alert |
+| **NP** | Coggan Normalized Power (30s rolling) | ≥ 128w warn · ≥ 145w alert |
 | **BPM** | Heart rate | ≥ 138 warn · ≥ 147 alert |
 | **MI** | Distance — target ~70 total | — |
 | **W'bal** | % match remaining (anaerobic) | < 40% warn · < 20% flash |
-| **EF** | % HR-rise vs morning baseline | display only |
+| **EF** | % HR-rise vs morning baseline (10-min rolling) | `--` until baseline locks + 5 min rolling fill |
 
 ---
 
@@ -35,22 +35,59 @@
 
 ---
 
-## Decision matrix (W'bal × EF drift)
+## Mode guide — push / steady / recover / rest / stop
 
-| W'bal | EF | Action |
-|-------|----|--------|
-| 70–100% | 0–3% | Send the climb, push pace |
-| 70–100% | 3–7% | Send the climb, easy after |
-| 70–100% | 7–12% | Easy climb — save for finish |
-| 70–100% | 12%+ | **Don't dig** — preserve |
-| 40–70% | 0–3% | Pick spots, no junk surges |
-| 40–70% | 3–7% | Selective efforts only |
-| 40–70% | 7–12% | Soft-pedal, eat, drink |
-| 40–70% | 12%+ | **Recover hard** before next trail |
-| <40% | 0–3% | Soft-pedal, rebuild W' |
-| <40% | 3–7% | Recover + refuel before next |
-| <40% | 7–12% | Walk/coast, let HR drop, eat |
-| <40% | 12%+ | **TROUBLE — full stop** |
+**Two roles for the six tiles:**
+
+- **Row 4 (W' Bal + EF Drift) = the *diagnosis*.** These two tiles tell you *which mode* you're in. They are state — you read them, you don't aim at them. W' Bal recovers on its own when you ease up; EF Drift climbs slowly with cumulative fatigue. They answer "where am I right now?"
+- **Rows 1–3 (W, NP, BPM) = the *prescription*.** These three tiles tell you *how to ride* inside that mode. They are targets — once you know your mode from row 4, you keep these three numbers under the ceilings in the table below. They answer "what should I do for the next 5 minutes?"
+
+So the workflow is: **glance at row 4 → look up the mode → ride to the row 1–3 ceilings for that mode.** When row 4 changes (W' Bal drops a band, or EF Drift crosses a threshold), you've shifted modes — re-read the table and adopt the new ceilings.
+
+| Mode | When (W' Bal / EF Drift) | Target ceilings (W / NP / BPM) | On the trail | Between trails | Fuel & water (per hour) |
+|------|--------------------------|--------------------------------|--------------|----------------|--------------------------|
+| **PUSH** — green light | 70–100% / 0–3% **or** 70–100% / 3–7% | W ≤ 120 avg · NP ≤ 128 · BPM ≤ 138 sustained · climbs to 170 W / 145 BPM OK briefly | Send the climbs. Hit your power numbers. Stay in the saddle on punchy ups. | Normal turnaround, ~15 min. Pee, refill, eat, go. | 60 g carbs · 500 mL water · 1 pinch salt |
+| **STEADY** — pace it | 70–100% / 7–12% **or** 40–70% / 0–3% **or** 40–70% / 3–7% | W ≤ 105 avg · NP ≤ 120 · BPM ≤ 132 sustained · climbs to 150 W / 140 BPM | Tempo only. Pick *one* climb per trail to attack; soft-pedal the rest. No junk surges on flats. | 15–20 min. Real food (banana, rice cake, PB sandwich). | 80 g carbs · 600 mL water + electrolyte tab |
+| **RECOVER** — defensive | 70–100% / 12%+ **or** 40–70% / 7–12% **or** <40% / 0–3% **or** <40% / 3–7% | W ≤ 85 avg · NP ≤ 100 · BPM ≤ 122 sustained · no climb effort > 120 W | Granny gear on climbs. Coast flats. Walk anything that would spike HR. No standing pedal strokes. | 20–30 min. Sit down. Big meal — sandwich + chips + a real Coke. Refill bottles cold. | 100 g carbs · 800 mL water + electrolyte + salt cap |
+| **REST** — pre-trouble | 40–70% / 12%+ **or** <40% / 7–12% | W ≤ 65 avg · NP ≤ 80 · BPM ≤ 115 · walk anything > 90 W | Walk the technical bits. Soft-pedal everything else. Goal is to finish the trail, not race it. Stop mid-trail if you feel worse, not better. | **30–45 min in shade.** Off the bike, off your feet. Real meal. Reassess: do you actually want trail N+1? | 100+ g carbs · 1 L water + 2 electrolyte tabs |
+| **STOP** — emergency | <40% / 12%+ **or** any / 18%+ | HR **must drop** to < 120 within 10 min off-bike — else DNF | Get to the next safe stop. Don't push for a finish split. | See "Trouble protocol" below. | Sip slowly, eat slowly. Forcing food when wrecked = vomiting. |
+
+**Mapping to the on-device tile alerts** (the row 1–3 tiles flash/invert at these numbers, so the device tells you when you've drifted to the next mode):
+
+- **W tile** — inverse at **120 W**, flashing at **135 W**
+- **NP tile** — inverse at **128 W**, flashing at **145 W**
+- **BPM tile** — inverse at **138 BPM**, flashing at **147 BPM**
+
+PUSH mode = all tiles white (no alerts). One tile goes inverse → you've slipped to STEADY. Two tiles inverse, or any tile flashing → RECOVER or worse. BPM tile flashing at 147 with low W' Bal → you're hitting STOP territory regardless of EF Drift.
+
+**Tile-color shortcut:**
+
+- Both tiles in the **green** part of their range → **PUSH**
+- Either tile in the **yellow** band, neither in red → **STEADY**
+- One tile **red / orange** → **RECOVER**
+- Both tiles in **red / orange** → **REST**
+- W' Bal flashing OR EF ≥ 18% → **STOP**
+
+---
+
+## Underlying decision matrix (W'bal × EF drift — 12 cells)
+
+For completeness — these are the cells that feed the mode table above.
+
+| W'bal | EF | Action | Mode |
+|-------|----|--------|------|
+| 70–100% | 0–3% | Send the climb, push pace | PUSH |
+| 70–100% | 3–7% | Send the climb, easy after | PUSH |
+| 70–100% | 7–12% | Easy climb — save for finish | STEADY |
+| 70–100% | 12%+ | **Don't dig** — preserve | RECOVER |
+| 40–70% | 0–3% | Pick spots, no junk surges | STEADY |
+| 40–70% | 3–7% | Selective efforts only | STEADY |
+| 40–70% | 7–12% | Soft-pedal, eat, drink | RECOVER |
+| 40–70% | 12%+ | **Recover hard** before next trail | REST |
+| <40% | 0–3% | Soft-pedal, rebuild W' | RECOVER |
+| <40% | 3–7% | Recover + refuel before next | RECOVER |
+| <40% | 7–12% | Walk/coast, let HR drop, eat | REST |
+| <40% | 12%+ | **TROUBLE — full stop** | STOP |
 
 ---
 
@@ -78,8 +115,11 @@
 ## Calibration anchors
 
 - HRrest **52** · CP **171w** · W' **20 kJ**
-- EF baseline locks after ~20 min of clean steady-state riding (warmup 5:30 AM + first part of trail 1)
+- EF Drift validity band: **[0.55 × CP, 1.05 × CP] = 94–180 W** (only seconds in this band feed the model)
+- EF baseline locks once **15 valid 1-min windows** accumulate — typically 15–25 min of clean steady-state (warmup 5:30 AM + first part of trail 1)
+- After lock, EF display waits another **5 min** for the rolling buffer to fill before showing a number
 - 5 AM reset boundary — all rides between 5 AM and next 5 AM share one event
+- 2-min gap rule: if no power sample falls in the validity band for 2+ minutes (long coast / stop / techy descent), the EF rolling buffer clears and refills
 
 ---
 

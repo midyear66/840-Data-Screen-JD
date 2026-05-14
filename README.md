@@ -69,13 +69,15 @@ drift    = (EF_baseline / EF_current) − 1     (positive = HR rising for same
 
 (Allen & Coggan: <5% within a single ride = well-paced aerobic effort.)
 
-**Baseline establishment.** Opportunistic. Collect valid 1-min windows until 20 windows accumulate (~20 min of clean steady-state). Typically locks during a 5:30 AM warmup or early in trail 1. Tile shows `--` until baseline locks.
+**Baseline establishment.** Opportunistic. Collect valid 1-min windows until **15** windows accumulate (~15–25 min of clean steady-state, depending on how much of the ride falls inside the validity gate). Typically locks during a 5:30 AM warmup or early in trail 1. Tile shows `--` until baseline locks.
 
-**Validity gate (sustained-aerobic only).** A second contributes to baseline/drift only when the 30-second rolling power lies in **[0.50×CP, 1.10×CP]** *and* HR > HRrest+20. The dual band filters both coasting *and* burst climbs above CP — both contaminate the rolling EF on bursty MTB and would otherwise produce nonsensical negative drift readings on punchy terrain.
+**Validity gate (sustained-aerobic only).** A second contributes to baseline/drift only when the 30-second rolling power lies in **[0.55×CP, 1.05×CP]** *and* HR > HRrest+20. The dual band filters both coasting *and* burst climbs above CP — both contaminate the rolling EF on bursty MTB and would otherwise produce nonsensical drift readings on punchy terrain. The band was calibrated against six MTB rides: tightening from the original 0.50–1.10 reduced per-minute drift jitter from 10–27% to 3–7% while still locking the baseline within the first half-hour of typical riding.
+
+**Smoothing.** Live EF uses a **10-minute rolling average** of valid 1-min windows. The displayed drift is hidden until the rolling buffer has at least 5 windows (the first ~5 min post-lock are not yet stable enough to report). If no sample passes the gate for 120 seconds (long coast, stop, or technical descent), the rolling buffer is cleared so the live EF doesn't stitch across non-contiguous efforts.
 
 **Event accumulation — 5 AM reset.** Baseline + last drift persist across activity stop/start, power-off, and reboot via `Application.Storage`. All rides started between **5 AM local and the next 5 AM local** share the same baseline — perfect for Judgment Day's 10-trail, 24-hour format. The 5 AM (rather than 6 AM) boundary lets a pre-event warm-up ride seed the baseline cleanly, before the start-line surge of trail 1 contaminates it.
 
-**Resume behavior.** On power-on, the tile shows the last persisted drift % immediately; live measurement takes over within ~5 min once the new rolling 5-min EF window fills.
+**Resume behavior.** On power-on, the tile shows the last persisted drift % immediately; the live rolling buffer refills in the background and the display transitions to live once 5 valid 1-min windows have accumulated post-resume.
 
 ### Combined row-4 usage
 
@@ -147,7 +149,7 @@ All thresholds and model parameters are configurable without recompiling.
 | NP Warning (w) | 128 | Solid inverse — sustained effort getting costly |
 | NP Alert (w) | 145 | Flashing — trail variability adding up |
 | W' Capacity (J) | 20000 | Total anaerobic reserve in joules |
-| Critical Power (w) | 171 | Threshold between aerobic and anaerobic (≈ FTP); also defines the EF Drift validity band [0.50×CP, 1.10×CP] |
+| Critical Power (w) | 171 | Threshold between aerobic and anaerobic (≈ FTP); also defines the EF Drift validity band [0.55×CP, 1.05×CP] |
 | Resting HR (bpm) | 52 | HRrest — used by EF Drift validity gate (HR > HRrest+20) |
 
 **In the simulator:** Settings → open the settings dialog for the data field.

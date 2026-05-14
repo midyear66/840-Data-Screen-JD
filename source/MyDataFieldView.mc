@@ -36,13 +36,26 @@ import Toybox.WatchUi;
 
 class MyDataFieldView extends WatchUi.DataField {
 
-    var _hr        as Lang.Number? = null;
-    var _power     as Lang.Number? = null;
-    var _normPower as Lang.Number? = null;
-    var _distance  as Lang.Float?  = null;
+    var _hr           as Lang.Number? = null;
+    var _power        as Lang.Number? = null;  // raw 1-sec power; feeds W' Bal, EF Drift, NP
+    var _powerDisplay as Lang.Number? = null;  // 3-sec smoothed; feeds W tile + alert only
+    var _normPower    as Lang.Number? = null;
+    var _distance     as Lang.Float?  = null;
 
     var _hrMiss    = 0;
     var _powerMiss = 0;
+
+    // ── 3-sec power smoothing for the W tile / pwr alert ──────────────────────
+    // Industry-standard 3s display smoothing. Cuts pedal-stroke + power-meter
+    // quantization noise so the tile and warn/alert flashes don't strobe on
+    // every revolution. NP, W' Balance, and EF Drift continue to use raw 1-sec
+    // power — they have their own time constants and would lose fidelity
+    // (sprints draining W', for example) if fed pre-smoothed input.
+    const PWR_SMOOTH_SECONDS = 3;
+    var _pwrSmoothBuf   as Lang.Array<Lang.Number or Null>;
+    var _pwrSmoothIdx   as Lang.Number = 0;
+    var _pwrSmoothCount as Lang.Number = 0;
+    var _pwrSmoothSum   as Lang.Number = 0;
 
     // ── NP calculation state ──────────────────────────────────────────────────
     // Coggan NP: 4th root of rolling mean of (30s rolling avg power)^4
@@ -88,6 +101,9 @@ class MyDataFieldView extends WatchUi.DataField {
 
         _npBuf = new [30];
         for (var i = 0; i < 30; i++) { _npBuf[i] = 0; }
+
+        _pwrSmoothBuf = new [PWR_SMOOTH_SECONDS];
+        for (var i = 0; i < PWR_SMOOTH_SECONDS; i++) { _pwrSmoothBuf[i] = 0; }
 
         loadSettings();
         _wPrimeBal = _wPrime.toFloat();  // sync after loadSettings() may change _wPrime
@@ -144,6 +160,24 @@ class MyDataFieldView extends WatchUi.DataField {
         } else {
             _powerMiss += 1;
             if (_powerMiss >= MISS_THRESHOLD) { _power = null; }
+        }
+
+        // ── 3-sec smoothed power (display + alert path only) ──────────────────
+        // Maintain a running 3-sample sum; null/missing power counts as 0 so
+        // the tile decays toward 0 during a sensor dropout rather than
+        // freezing at the last reading.
+        var pwrSample = (_power != null) ? (_power as Lang.Number) : 0;
+        _pwrSmoothSum -= _pwrSmoothBuf[_pwrSmoothIdx];
+        _pwrSmoothBuf[_pwrSmoothIdx] = pwrSample;
+        _pwrSmoothSum += pwrSample;
+        _pwrSmoothIdx = (_pwrSmoothIdx + 1) % PWR_SMOOTH_SECONDS;
+        if (_pwrSmoothCount < PWR_SMOOTH_SECONDS) {
+            _pwrSmoothCount += 1;
+        }
+        if (_power == null) {
+            _powerDisplay = null;
+        } else {
+            _powerDisplay = (_pwrSmoothSum / _pwrSmoothCount).toNumber();
         }
 
         // ── Normalized power (Coggan) ─────────────────────────────────────────
@@ -211,7 +245,7 @@ class MyDataFieldView extends WatchUi.DataField {
 
         // ── Evaluate alert states ─────────────────────────────────────────────
 
-        var pwrState = alertState(_power,     _pwrWarn, _pwrAlert);
+        var pwrState = alertState(_powerDisplay, _pwrWarn, _pwrAlert);
         var npState  = alertState(_normPower, _npWarn,  _npAlert);
         var hrState  = alertState(_hr,        _hrWarn,  _hrAlert);
 
@@ -240,7 +274,7 @@ class MyDataFieldView extends WatchUi.DataField {
         // ── Draw tiles ────────────────────────────────────────────────────────
 
         // Row 1: Power (left) | Normalized Power (right)
-        drawCell(dc, 0,     0,        w / 2, rowH, _power     != null ? _power.toString()        : "--", "W",   false, pad, pwrInverse);
+        drawCell(dc, 0,     0,        w / 2, rowH, _powerDisplay != null ? _powerDisplay.toString() : "--", "W",   false, pad, pwrInverse);
         drawCell(dc, w / 2, 0,        w / 2, rowH, _normPower != null ? _normPower.toString()     : "--", "NP",  false, pad, npInverse);
 
         // Row 2: Heart Rate
