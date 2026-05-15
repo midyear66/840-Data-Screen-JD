@@ -9,3 +9,6 @@ bin/internal-mir/
 bin/test_*.prg
 bin/test_*.prg.debug.xml
 bin/external-mir/
+
+# Generated print-ready PDFs (regenerate with tools/build-pdf.py)
+*.pdf
