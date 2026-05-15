@@ -16,7 +16,7 @@ A custom Garmin Connect IQ data field for the Edge 840 built for **Judgment Day*
 └─────────────┴─────────────┘
 ```
 
-- **Row 1:** Instant power (W) on the left; Coggan Normalized Power (NP) on the right. Red vertical divider.
+- **Row 1:** Power (W) on the left — 3-second rolling average for display + alert state, to cut MTB pedal-stroke flicker; Coggan Normalized Power (NP) on the right. Red vertical divider.
 - **Row 2:** Heart rate (BPM), full width.
 - **Row 3:** Elapsed distance in miles. When any paired sensor battery drops below 10%, the lowest percentage is overlaid in red (top-right corner of this tile).
 - **Row 4:** W' Balance percentage (left) and EF Drift (right) — % HR-rise for same power vs the morning baseline. Red vertical divider.
@@ -104,6 +104,9 @@ The two row-4 tiles answer different pacing questions on different timescales �
 - EF drift trending up faster than 1% per trail = started too hard.
 - Both numbers green at hour 12 = winning.
 
+### Power display (3-second smoothing)
+The W tile and its alert thresholds use a 3-second rolling average of raw power. On bursty MTB terrain, raw 1-second power produces ~7 warn-line crossings per minute from pedal-stroke and quantization noise alone, which strobes the tile unreadably. 3-second smoothing cuts alert-state transitions 30–40% across six validation rides while preserving real terrain response. The underlying NP, W' Balance, EF Drift, and durability accumulators still consume the raw 1-Hz power stream — smoothing is display-and-alert only.
+
 ### Normalized Power
 Coggan algorithm: 4th root of the Welford running mean of (30-second rolling average power)⁴. Valid once 30 seconds of data have accumulated.
 
@@ -123,7 +126,7 @@ Each metric uses a **two-stage alert**:
 
 | Metric | Warning | Alert |
 |--------|---------|-------|
-| Instant power | ≥ 120w | ≥ 135w |
+| Power (3-sec avg) | ≥ 120w | ≥ 135w |
 | Normalized power | ≥ 128w | ≥ 145w |
 | Heart rate | ≥ 138 bpm | ≥ 147 bpm |
 | W' Balance | < 40% | < 20% (flash) |
@@ -155,6 +158,24 @@ All thresholds and model parameters are configurable without recompiling.
 **In the simulator:** Settings → open the settings dialog for the data field.
 
 **On device:** Edit default values in `resources/properties.xml` and rebuild/reinstall.
+
+---
+
+## Companion docs
+
+Two markdown documents at the repo root accompany the data field, intended for in-car reference between trails:
+
+- **`cheatsheet.md`** — single-page Judgment Day pacing reference: tile reading guide, 5-mode action table (PUSH / STEADY / RECOVER / REST / STOP), W'Bal × EF Drift decision matrix, per-mode fuel and water targets, trouble protocol.
+- **`trail-log.md`** — fillable per-trail log for the 24-hour event: W'Bal / EF Drift / Garmin Stamina / RPE per trail, trail-to-trail decision rules, end-of-event summary.
+
+Build print-ready landscape PDFs (gitignored — regenerate any time):
+
+```bash
+pip3 install markdown-pdf
+python3 tools/build-pdf.py
+```
+
+Outputs `cheatsheet.pdf`, `trail-log.pdf`, and `JD-pacing-packet.pdf` (combined) at the repo root.
 
 ---
 
