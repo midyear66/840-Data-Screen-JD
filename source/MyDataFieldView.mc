@@ -268,7 +268,10 @@ class MyDataFieldView extends WatchUi.DataField {
         }
 
         // ── EF Drift display ──────────────────────────────────────────────────
-        var efStr = _efDrift.isLocked() ?
+        // Show "--" until both: baseline is locked AND we have a real drift
+        // value (rolling buffer filled this activity, or a persisted drift
+        // was restored on resume). Lock alone briefly produces a false 0%.
+        var efStr = (_efDrift.isLocked() && _efDrift.hasDisplayValue()) ?
             _efDrift.getDriftPercent().toString() : "--";
 
         // ── Draw tiles ────────────────────────────────────────────────────────
