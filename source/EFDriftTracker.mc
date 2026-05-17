@@ -80,6 +80,12 @@ class EFDriftTracker {
     var _rollingCount as Lang.Number = 0;
 
     var _currentDrift as Lang.Float  = 0.0;
+    // True once we have a real drift value to show — either restored from
+    // storage on resume, or written from the rolling EF after the buffer
+    // reached ROLLING_MIN_DISPLAY windows. Lock alone is NOT enough: a
+    // freshly locked baseline with an empty rolling buffer would otherwise
+    // flash a false "0%" before any rolling data exists.
+    var _hasDisplayValue as Lang.Boolean = false;
     var _saveCounter  as Lang.Number = 0;
 
     // Ticks since last gate-passing sample. Used to clear the rolling
@@ -131,11 +137,13 @@ class EFDriftTracker {
             _baselineEF       = storedBase.toFloat();
             _baselineLocked   = true;
             _currentDrift     = (storedDrift != null) ? storedDrift.toFloat() : 0.0;
+            _hasDisplayValue  = (storedDrift != null);
             _validWindowCount = BASELINE_WINDOWS;
         } else {
             _baselineEF       = 0.0;
             _baselineLocked   = false;
             _currentDrift     = 0.0;
+            _hasDisplayValue  = false;
             _validWindowCount = 0;
             _baselineHRSum    = 0.0;
             _baselinePowerSum = 0.0;
@@ -245,7 +253,8 @@ class EFDriftTracker {
                     // single-minute snapshot.
                     var currentEF = rollPower / rollHR;
                     if (currentEF > 0.0) {
-                        _currentDrift = (_baselineEF / currentEF) - 1.0;
+                        _currentDrift    = (_baselineEF / currentEF) - 1.0;
+                        _hasDisplayValue = true;
                     }
                 }
             }
@@ -283,11 +292,17 @@ class EFDriftTracker {
         return (_currentDrift * 100.0).toNumber();
     }
 
-    // True once the baseline is locked. The displayed _currentDrift is
-    // either the persisted value (immediately after resume, while the
-    // rolling buffer refills) or the live rolling EF (once the buffer
-    // has at least ROLLING_MIN_DISPLAY windows). See update().
+    // True once the baseline is locked. Use in combination with
+    // hasDisplayValue() to decide whether to render a drift number or "--".
     function isLocked() as Lang.Boolean {
         return _baselineLocked;
+    }
+
+    // True once we have a real drift to show — either a persisted value
+    // restored on resume, or a rolling EF written after the buffer reached
+    // ROLLING_MIN_DISPLAY. A freshly locked baseline with an empty rolling
+    // buffer reports false, so the view shows "--" rather than a false 0%.
+    function hasDisplayValue() as Lang.Boolean {
+        return _hasDisplayValue;
     }
 }
