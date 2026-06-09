@@ -116,7 +116,7 @@ For completeness — these are the cells that feed the mode table above.
 
 - HRrest **52** · CP **171w** · W' **20 kJ**
 - EF Drift validity band: **[0.55 × CP, 1.05 × CP] = 94–180 W** (only seconds in this band feed the model)
-- EF baseline locks once **15 valid 1-min windows** accumulate — typically 15–25 min of clean steady-state (warmup 5:30 AM + first part of trail 1)
+- EF baseline locks once **10 valid 1-min windows** accumulate — typically 20–25 min of clean steady-state (warmup 5:30 AM + first part of trail 1)
 - After lock, EF display waits another **5 min** for the rolling buffer to fill before showing a number
 - 5 AM reset boundary — all rides between 5 AM and next 5 AM share one event
 - 2-min gap rule: if no power sample falls in the validity band for 2+ minutes (long coast / stop / techy descent), the EF rolling buffer clears and refills
@@ -134,4 +134,4 @@ For completeness — these are the cells that feed the mode table above.
 - [ ] Sideloaded latest `830DataScreenJD.prg` build
 - [ ] Garmin charged to 100%, charger in car for between trails
 - [ ] Lights charged (last 1–2 trails likely in dark)
-- [ ] Warmup ride 5:30 AM — easy spin, get HR up to ~110 for 10 min
+- [ ] Warmup ride 5:30 AM — easy spin, 10+ min steady in the 94–180 W band to seed the EF baseline before the start-line surge
