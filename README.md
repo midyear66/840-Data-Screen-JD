@@ -69,7 +69,7 @@ drift    = (EF_baseline / EF_current) − 1     (positive = HR rising for same
 
 (Allen & Coggan: <5% within a single ride = well-paced aerobic effort.)
 
-**Baseline establishment.** Opportunistic. Collect valid 1-min windows until **15** windows accumulate (~15–25 min of clean steady-state, depending on how much of the ride falls inside the validity gate). Typically locks during a 5:30 AM warmup or early in trail 1. Tile shows `--` until baseline locks.
+**Baseline establishment.** Opportunistic. Collect valid 1-min windows until **10** windows accumulate (~20–25 min of clean steady-state, depending on how much of the ride falls inside the validity gate). Typically locks during a 5:30 AM warmup or early in trail 1. Tile shows `--` until baseline locks. The 10-window lock was validated against the full 36-ride power library (`tools/eval-rides.py`): dropping it from 15 raised the baseline-lock rate from 81% to 92% of powered rides and cut median time-to-lock from 35 to 24 min, while leaving the displayed validity band untouched so rolled-drift jitter stays in target (median 2.3%, max 4.6%). A 10-min warmup now suffices to seed the baseline before the start-line surge.
 
 **Validity gate (sustained-aerobic only).** A second contributes to baseline/drift only when the 30-second rolling power lies in **[0.55×CP, 1.05×CP]** *and* HR > HRrest+20. The dual band filters both coasting *and* burst climbs above CP — both contaminate the rolling EF on bursty MTB and would otherwise produce nonsensical drift readings on punchy terrain. The band was calibrated against six MTB rides: tightening from the original 0.50–1.10 reduced per-minute drift jitter from 10–27% to 3–7% while still locking the baseline within the first half-hour of typical riding.
 

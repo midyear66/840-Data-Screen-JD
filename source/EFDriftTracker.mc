@@ -19,8 +19,14 @@ import Toybox.Time.Gregorian;
 //  was validated against six MTB rides — it drops per-minute drift jitter
 //  from 10–27% down to 3–7%.
 //
-//  Baseline locks once 15 valid 1-min windows accumulate. The live EF is a
-//  10-minute rolling average; the displayed drift is hidden until the
+//  Baseline locks once 10 valid 1-min windows accumulate. Validated against
+//  the full 36-ride power library (eval-rides.py): dropping the lock from 15
+//  to 10 windows raised the baseline-lock rate from 81% to 92% of powered
+//  rides and cut median time-to-lock from 35 to 24 min, while the displayed
+//  validity band stays 0.55-1.05x CP so rolled-drift jitter holds in target
+//  (median 2.3%, max 4.6% — well under the 7% ceiling). A 10-min warm-up now
+//  suffices to seed the baseline before the start-line surge. The live EF is
+//  a 10-minute rolling average; the displayed drift is hidden until the
 //  rolling buffer holds at least 5 windows (5 min post-lock) so the first
 //  number the rider sees is not a single-minute snapshot.
 //
@@ -42,7 +48,7 @@ class EFDriftTracker {
 
     const HR_FLOOR_MARGIN      = 20;
     const WINDOW_SECONDS       = 60;
-    const BASELINE_WINDOWS     = 15;     // 1-min valid windows needed to lock
+    const BASELINE_WINDOWS     = 10;     // 1-min valid windows needed to lock
     const ROLLING_WINDOWS      = 10;     // post-lock rolling EF window (min)
     const ROLLING_MIN_DISPLAY  = 5;      // hide drift until this many windows
     const SAVE_INTERVAL_TICKS  = 60;
