@@ -32,6 +32,7 @@ WINDOW_SECONDS = 60
 BASELINE_WINDOWS = 10   # shipped value (was 15); see EFDriftTracker.mc
 ROLLING_WINDOWS = 10
 ROLLING_MIN_DISPLAY = 5
+ROLLING_REFILL_DISPLAY = 8   # post-gap re-display gate (shipped); see .mc
 POWER_ROLL_SECONDS = 30
 POWER_BAND_LOW_FRAC = 0.55
 POWER_BAND_HIGH_FRAC = 1.05
@@ -82,6 +83,7 @@ class EFDrift:
         self.current_drift = 0.0
         self.has_display = False
         self.gap_ticks = 0
+        self.post_gap_refill = False
 
         # instrumentation (not in .mc)
         self.lock_tick = None       # tick index at which baseline locked
@@ -113,6 +115,7 @@ class EFDrift:
             if self.gap_ticks >= GAP_RESET_SECONDS and self.rolling_count > 0:
                 self.rolling_count = 0
                 self.rolling_idx = 0
+                self.post_gap_refill = True
             return
         self.gap_ticks = 0
 
@@ -151,12 +154,15 @@ class EFDrift:
 
                 roll_hr = sum(self.rolling_hr[:self.rolling_count]) / self.rolling_count
                 roll_pw = sum(self.rolling_pwr[:self.rolling_count]) / self.rolling_count
+                need = (ROLLING_REFILL_DISPLAY if self.post_gap_refill
+                        else ROLLING_MIN_DISPLAY)
                 if (roll_hr > 0 and self.baseline_ef > 0
-                        and self.rolling_count >= ROLLING_MIN_DISPLAY):
+                        and self.rolling_count >= need):
                     cur_ef = roll_pw / roll_hr
                     if cur_ef > 0:
                         self.current_drift = (self.baseline_ef / cur_ef) - 1.0
                         self.has_display = True
+                        self.post_gap_refill = False
                         self.rolled_series.append(self.current_drift * 100.0)
 
             self.win_hr_sum = 0

@@ -32,7 +32,13 @@ import Toybox.Time.Gregorian;
 //
 //  If no sample passes the gate for 120 seconds (long coast / stop /
 //  technical descent), the rolling buffer is cleared so we don't stitch a
-//  stale 10-min EF across non-contiguous efforts.
+//  stale 10-min EF across non-contiguous efforts. After such a clear the
+//  buffer must refill to 8 windows (not 5) before re-displaying: HR lags
+//  the resumed power coming out of a recovery, which inflates the first
+//  post-gap windows and was producing spurious drift spikes up to ~19% —
+//  enough to flip a pacing mode. Validated on the 37-ride power library:
+//  the 8-window refill gate roughly halves the worst-case post-gap jump
+//  (19% → 11%) at a cost of ~3 fewer readings on stop-start rides.
 //
 //  Reset at 5 AM local: a pre-event warm-up at 5:30 AM seeds the baseline,
 //  and any rides between 5 AM and the next 5 AM share it. Cleaner than
@@ -50,7 +56,10 @@ class EFDriftTracker {
     const WINDOW_SECONDS       = 60;
     const BASELINE_WINDOWS     = 10;     // 1-min valid windows needed to lock
     const ROLLING_WINDOWS      = 10;     // post-lock rolling EF window (min)
-    const ROLLING_MIN_DISPLAY  = 5;      // hide drift until this many windows
+    const ROLLING_MIN_DISPLAY  = 5;      // initial: hide drift until this many windows
+    const ROLLING_REFILL_DISPLAY = 8;    // post-gap: require a fuller buffer before
+                                         // re-displaying (HR still settling after a
+                                         // recovery biases the first windows high)
     const SAVE_INTERVAL_TICKS  = 60;
     const POWER_ROLL_SECONDS   = 30;     // smooth instantaneous bursts
     const POWER_BAND_LOW_FRAC  = 0.55;   // require sustained aerobic effort
@@ -98,6 +107,14 @@ class EFDriftTracker {
     // buffer after long stops/coasts so the live EF doesn't stitch across
     // non-contiguous efforts.
     var _gateGapTicks as Lang.Number = 0;
+
+    // True after a gap-clear until the rolling buffer refills to
+    // ROLLING_REFILL_DISPLAY windows. Suppresses the noisy, HR-lag-inflated
+    // first readings that follow a recovery/stop, which would otherwise spike
+    // the displayed drift enough to flip a pacing mode. The initial post-lock
+    // fill still displays at ROLLING_MIN_DISPLAY — this only raises the bar
+    // for RE-display after the buffer has been cleared mid-ride.
+    var _postGapRefill as Lang.Boolean = false;
 
     function initialize(hrRest as Lang.Number, cp as Lang.Number) {
         setConfig(hrRest, cp);
@@ -172,7 +189,8 @@ class EFDriftTracker {
         _rollPwrCount = 0;
         _rollPwrSum   = 0;
 
-        _gateGapTicks = 0;
+        _gateGapTicks  = 0;
+        _postGapRefill = false;
     }
 
     // Called every compute() tick (~1 Hz). Validity-gated: only seconds
@@ -206,8 +224,9 @@ class EFDriftTracker {
             // EF doesn't stitch across non-contiguous efforts.
             _gateGapTicks += 1;
             if (_gateGapTicks >= GAP_RESET_SECONDS && _rollingCount > 0) {
-                _rollingCount = 0;
-                _rollingIdx   = 0;
+                _rollingCount  = 0;
+                _rollingIdx    = 0;
+                _postGapRefill = true;
             }
             return;
         }
@@ -250,8 +269,13 @@ class EFDriftTracker {
                 }
                 var rollHR    = rollHRSum    / _rollingCount.toFloat();
                 var rollPower = rollPowerSum / _rollingCount.toFloat();
+                // After a gap-clear the buffer must refill further before we
+                // trust it again (HR-lag inflates the first post-recovery
+                // windows); the initial post-lock fill still displays at 5.
+                var needWindows = _postGapRefill
+                    ? ROLLING_REFILL_DISPLAY : ROLLING_MIN_DISPLAY;
                 if (rollHR > 0.0 && _baselineEF > 0.0
-                    && _rollingCount >= ROLLING_MIN_DISPLAY) {
+                    && _rollingCount >= needWindows) {
                     // Only overwrite the displayed drift once we have
                     // enough rolling windows for a stable signal. Before
                     // that, leave _currentDrift at its persisted value so
@@ -261,6 +285,7 @@ class EFDriftTracker {
                     if (currentEF > 0.0) {
                         _currentDrift    = (_baselineEF / currentEF) - 1.0;
                         _hasDisplayValue = true;
+                        _postGapRefill   = false;
                     }
                 }
             }
