@@ -29,7 +29,7 @@ W_PRIME = 20000
 # ---- EFDriftTracker constants (verbatim from the .mc) ---------------------
 HR_FLOOR_MARGIN = 20
 WINDOW_SECONDS = 60
-BASELINE_WINDOWS = 15
+BASELINE_WINDOWS = 10   # shipped value (was 15); see EFDriftTracker.mc
 ROLLING_WINDOWS = 10
 ROLLING_MIN_DISPLAY = 5
 POWER_ROLL_SECONDS = 30
